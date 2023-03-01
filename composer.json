@@ -1,0 +1,30 @@
+{
+    "name": "nails/module-multi-factor-auth",
+    "description": "Brings MFA support to Nails auth module",
+    "minimum-stability": "dev",
+    "prefer-stable": true,
+    "require": {
+        "nails/module-auth": "dev-develop",
+        "nails/module-email": "dev-develop"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "9.*",
+        "phpstan/phpstan": "1.*"
+    },
+    "autoload": {
+        "psr-4": {
+            "Nails\\MFA\\": "src/"
+        }
+    },
+    "scripts": {
+        "test": "./vendor/bin/phpunit",
+        "analyse": "./vendor/bin/phpstan analyse -c .phpstan/config.neon"
+    },
+    "extra": {
+        "nails": {
+            "moduleName": "mfa",
+            "type": "module",
+            "namespace": "Nails\\MFA\\"
+        }
+    }
+}
