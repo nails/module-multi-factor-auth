@@ -23,14 +23,15 @@ class MultiFactorAuth
     const MFA_URL                      = 'mfa/%s';
     const MFA_URL_TOKEN_SEGMENT        = 2;
     const MFA_SESSION_IS_PRIVILGED_KEY = 'mfa-is-priviliged';
+    const TOKEN_DATA_KEY_RETURN_TO     = 'return_to';
+    const TOKEN_DATA_KEY_IS_REMEMBERED = 'is_remembered';
 
     // --------------------------------------------------------------------------
 
-    public function authenticate(bool $bForce = false, User $oUser = null): self
+    public function authenticate(User $oUser, bool $bIsRemembered, bool $bForce = false): self
     {
         if ($bForce || $this->requiresAuthentication()) {
 
-            $oUser = $oUser ?? activeUser();
             /** @var Input $oInput */
             $oInput = Factory::service('Input');
             /** @var Auth\Service\Authentication $oAuth */
@@ -46,6 +47,7 @@ class MultiFactorAuth
                     urlencode(
                         $this->generateToken(
                             $oUser,
+                            $bIsRemembered,
                             $oInput::ipAddress()
                         )
                     )
@@ -74,7 +76,7 @@ class MultiFactorAuth
 
     // --------------------------------------------------------------------------
 
-    private function generateToken(User $oUser, string $sIp): Token
+    private function generateToken(User $oUser, bool $bIsRememebred, string $sIp): Token
     {
         /** @var Input $oInput */
         $oInput = Factory::service('Input');
@@ -103,7 +105,8 @@ class MultiFactorAuth
         //  @todo (Pablo 2023-02-23) - persist session data?
 
         $oToken->setData((object) [
-            'return_to' => $oInput::get('return_to') ?: $oInput::server('URI_STRING'),
+            static::TOKEN_DATA_KEY_RETURN_TO     => $oInput::get('return_to') ?: $oInput::server('URI_STRING'),
+            static::TOKEN_DATA_KEY_IS_REMEMBERED => $bIsRememebred,
         ]);
 
         return $oToken;

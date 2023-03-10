@@ -17,7 +17,7 @@ $oView = Factory::service('View');
         <h1 class="panel__header text-center">
             Two Factor Authentication
         </h1>
-        <?=form_open()?>
+        <?=form_open(null, 'id="mfa-form"')?>
         <div class="panel__body">
             <?php
 
@@ -31,7 +31,7 @@ $oView = Factory::service('View');
                 <?=form_input('code', set_value('code'))?>
             </div>
             <p>
-                <button type="submit" name="action" value="verify" class="btn btn--block btn--primary">
+                <button type="submit" name="action" value="verify" class="btn btn--block btn--primary" id="mfa-btn-verify">
                     Verify
                 </button>
             </p>
@@ -40,7 +40,7 @@ $oView = Factory::service('View');
             if ($oDriver->canTryAgain()) {
                 ?>
                 <p>
-                    <button type="submit" name="action" value="restart" class="btn btn--block btn--secondary">
+                    <button type="submit" name="action" value="restart" class="btn btn--block btn--secondary" id="mfa-btn-retry">
                         Request another verification code
                     </button>
                 </p>
@@ -48,7 +48,26 @@ $oView = Factory::service('View');
             }
 
             ?>
+            <div id="mfa-submitting" style="display: none" class="form__group text-center">
+                Please wait...
+            </div>
         </div>
         <?=form_close()?>
     </div>
 </div>
+<script>
+
+var form = document.getElementById('mfa-form');
+var btnVerify = document.getElementById('mfa-btn-verify');
+var btnRetry = document.getElementById('mfa-btn-retry');
+var submitting = document.getElementById('mfa-submitting');
+
+form.addEventListener('submit', function() {
+    btnVerify.style.display = 'none';
+    if (btnRetry) {
+        btnRetry.style.display = 'none';
+    }
+    submitting.style.display = 'block';
+});
+
+</script>

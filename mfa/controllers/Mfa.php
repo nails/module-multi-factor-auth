@@ -22,6 +22,8 @@ class Mfa extends \App\Controller\Base
         $oTokenModel = Factory::model('Token', Constants::MODULE_SLUG);
         /** @var \Nails\Auth\Service\Authentication $oAuthenticationService */
         $oAuthenticationService = Factory::service('Authentication', \Nails\Auth\Constants::MODULE_SLUG);
+        /** @var \Nails\Auth\Model\User $oUserModel */
+        $oUserModel = Factory::model('User', \Nails\Auth\Constants::MODULE_SLUG);
 
         // --------------------------------------------------------------------------
 
@@ -53,7 +55,19 @@ class Mfa extends \App\Controller\Base
                     $oTokenModel->delete($oToken->id);
                     $oAuthenticationService->login($oToken->user());
 
-                    redirect($oToken->getData('return_to'));
+                    if ($oToken->getData($oMfaService::TOKEN_DATA_KEY_IS_REMEMBERED)) {
+                        $oUserModel->setRememberCookie(
+                            $oToken->user()->id,
+                            $oToken->user()->password,
+                            $oToken->user()->email
+                        );
+                    }
+
+                    redirect(
+                        $oToken->getData(
+                            $oMfaService::TOKEN_DATA_KEY_RETURN_TO
+                        )
+                    );
 
                 } catch (\Nails\MFA\Exception\InvalidCodeException $e) {
                     $oUserFeedback->error($e->getMessage());
@@ -62,7 +76,11 @@ class Mfa extends \App\Controller\Base
 
             } elseif ($oInput::post('action') === 'restart') {
                 $oTokenModel->delete($oToken->id);
-                $oMfaService->authenticate(true, $oToken->user());
+                $oMfaService->authenticate(
+                    $oToken->user(),
+                    $oToken->getData($oMfaService::TOKEN_DATA_KEY_IS_REMEMBERED),
+                    true
+                );
 
             } else {
 
@@ -74,7 +92,11 @@ class Mfa extends \App\Controller\Base
         } catch (Exception\TokenException\IsExpiredException $e) {
             //  Generate a new token to stay in the loop
             $oUserFeedback->info('Your session expired, please try again.');
-            $oMfaService->authenticate(true, $e->getToken()->user());
+            $oMfaService->authenticate(
+                $e->getToken()->user(),
+                $e->getToken()->getData($oMfaService::TOKEN_DATA_KEY_IS_REMEMBERED),
+                true
+            );
 
         } catch (Exception\TokenException $e) {
             show404();

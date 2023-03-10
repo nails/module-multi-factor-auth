@@ -3,6 +3,7 @@
 namespace Nails\MFA\Event\Listener\User;
 
 use App\Api\Controller\VirtualAdviser;
+use Nails\Auth\Model\User;
 use Nails\MFA\Constants;
 use Nails\Auth\Events;
 use Nails\Auth\Service\Authentication;
@@ -31,6 +32,12 @@ class LogIn extends Subscription
     {
         /** @var MultiFactorAuth $oService */
         $oService = Factory::service('MultiFactorAuth', Constants::MODULE_SLUG);
-        $oService->authenticate();
+        /** @var User $oUserModel */
+        $oUserModel = Factory::model('User', \Nails\Auth\Constants::MODULE_SLUG);
+
+        $oService->authenticate(
+            $oUserModel->activeUser(),
+            $oUserModel->bIsRemembered()
+        );
     }
 }
