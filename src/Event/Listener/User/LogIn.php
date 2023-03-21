@@ -37,7 +37,7 @@ class LogIn extends Subscription
 
         $oService->authenticate(
             $oUserModel->activeUser(),
-            $oUserModel->bIsRemembered()
+            $oUserModel->isRemembered()
         );
     }
 }
