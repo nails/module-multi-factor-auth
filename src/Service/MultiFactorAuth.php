@@ -23,8 +23,8 @@ class MultiFactorAuth
     const TOKEN_TTL                    = 300;
     const MFA_URL                      = 'mfa/%s';
     const MFA_URL_TOKEN_SEGMENT        = 2;
-    const MFA_COOKIE_IS_PRIVILGED_KEY  = 'mfa-is-priviliged';
-    const MFA_COOKIE_IS_PRIVILGED_TTL  = 1209600; // 14 days
+    const MFA_COOKIE_IS_PRIVILEGED_KEY  = 'mfa-is-privileged';
+    const MFA_COOKIE_IS_PRIVILEGED_TTL  = 1209600; // 14 days
     const TOKEN_DATA_KEY_RETURN_TO     = 'return_to';
     const TOKEN_DATA_KEY_IS_REMEMBERED = 'is_remembered';
 
@@ -235,8 +235,8 @@ class MultiFactorAuth
             activeUser()->id,
         ));
 
-        $sActiveUserHash      = $this->getIsPriviligedHash(activeUser());
-        $oStoredHashEncrypted = $oCookie->read(static::MFA_COOKIE_IS_PRIVILGED_KEY);
+        $sActiveUserHash      = $this->getIsPrivilegedHash(activeUser());
+        $oStoredHashEncrypted = $oCookie->read(static::MFA_COOKIE_IS_PRIVILEGED_KEY);
 
         if (empty($oStoredHashEncrypted)) {
             return false;
@@ -253,15 +253,15 @@ class MultiFactorAuth
 
     // --------------------------------------------------------------------------
 
-    public function setIsPriviliged(User $oUser, bool $bRemember = true): self
+    public function setIsPrivileged(User $oUser, bool $bRemember = true): self
     {
         /** @var Cookie $oCookie */
         $oCookie = Factory::service('Cookie');
         /** @var Encrypt $oEncrypt */
         $oEncrypt = Factory::service('Encrypt');
 
-        $sKey   = static::MFA_COOKIE_IS_PRIVILGED_KEY;
-        $sValue = $this->getIsPriviligedHash($oUser);
+        $sKey   = static::MFA_COOKIE_IS_PRIVILEGED_KEY;
+        $sValue = $this->getIsPrivilegedHash($oUser);
 
         $this->oLogger->info(sprintf(
             'Setting user as privileged; user %s; key: %s; value: %s',
@@ -275,7 +275,7 @@ class MultiFactorAuth
                 $sKey,
                 $oEncrypt::encode($sValue),
                 $bRemember
-                    ? static::MFA_COOKIE_IS_PRIVILGED_TTL
+                    ? static::MFA_COOKIE_IS_PRIVILEGED_TTL
                     : null,
                 '/'
             );
@@ -285,7 +285,7 @@ class MultiFactorAuth
 
     // --------------------------------------------------------------------------
 
-    protected function getIsPriviligedHash(User $oUser): string
+    protected function getIsPrivilegedHash(User $oUser): string
     {
         return sha1(Config::get('PRIVATE_KEY') . $oUser->id . $oUser->salt);
     }
