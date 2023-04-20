@@ -24,7 +24,7 @@ class MultiFactorAuth
     const MFA_URL                      = 'mfa/%s';
     const MFA_URL_TOKEN_SEGMENT        = 2;
     const MFA_COOKIE_IS_PRIVILGED_KEY  = 'mfa-is-priviliged';
-    const MFA_COOKIE_IS_PRIVILGED_TTL  = 2592000; // 30 days
+    const MFA_COOKIE_IS_PRIVILGED_TTL  = 1209600; // 14 days
     const TOKEN_DATA_KEY_RETURN_TO     = 'return_to';
     const TOKEN_DATA_KEY_IS_REMEMBERED = 'is_remembered';
 
