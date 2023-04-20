@@ -51,7 +51,7 @@ class Mfa extends \App\Controller\Base
                 try {
 
                     $oDriver->validate($oToken, $oInput::post('code'));
-                    $oMfaService->setIsPriviliged($oToken->user());
+                    $oMfaService->setIsPriviliged($oToken->user(), (bool) $oInput::post('remember'));
                     $oTokenModel->delete($oToken->id);
                     $oAuthenticationService->login($oToken->user());
 
