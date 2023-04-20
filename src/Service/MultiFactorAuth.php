@@ -28,9 +28,29 @@ class MultiFactorAuth
 
     // --------------------------------------------------------------------------
 
+    protected Logger $oLogger;
+
+    // --------------------------------------------------------------------------
+
+    public function __construct()
+    {
+        $this->oLogger = Factory::service('Logger', Constants::MODULE_SLUG);
+    }
+
+    // --------------------------------------------------------------------------
+
     public function authenticate(User $oUser, bool $bIsRemembered, bool $bForce = false): self
     {
+        $this->oLogger->info(sprintf(
+            'Authenticating user %s; remembered: %s; forced: %s',
+            $oUser->id,
+            json_encode($bIsRemembered),
+            json_encode($bForce),
+        ));
+
         if ($bForce || $this->requiresAuthentication()) {
+
+            $this->oLogger->info('Authentication required, continuing');
 
             /** @var Input $oInput */
             $oInput = Factory::service('Input');
@@ -38,21 +58,23 @@ class MultiFactorAuth
             $oAuth = Factory::service('Authentication', Auth\Constants::MODULE_SLUG);
 
             if (isLoggedIn()) {
+                $this->oLogger->info('User is currently logged in, logging out');
                 $oAuth->logout();
             }
 
-            redirect(
-                sprintf(
-                    static::MFA_URL,
-                    urlencode(
-                        $this->generateToken(
-                            $oUser,
-                            $bIsRemembered,
-                            $oInput::ipAddress()
-                        )
+            $sUrl = sprintf(
+                static::MFA_URL,
+                urlencode(
+                    $this->generateToken(
+                        $oUser,
+                        $bIsRemembered,
+                        $oInput::ipAddress()
                     )
                 )
             );
+
+            $this->oLogger->info('Redirecting to: ' . $sUrl);
+            redirect($sUrl);
         }
 
         return $this;
@@ -64,20 +86,33 @@ class MultiFactorAuth
     {
         /** @var \Nails\Auth\Service\Session $oSession */
         $oSession = Factory::service('Session');
-        return isLoggedIn() && $this->isPrivileged();
+        $bResult  = isLoggedIn() && $this->isPrivileged();
+
+        $this->oLogger->info('Is Authenticated: ' . json_encode($bResult));
+
+        return $bResult;
     }
 
     // --------------------------------------------------------------------------
 
     public function requiresAuthentication(): bool
     {
-        return !$this->isAuthenticated() && !wasAdmin();
+        $bResult = !$this->isAuthenticated() && !wasAdmin();
+        $this->oLogger->info('Requires Authentication: ' . json_encode($bResult));
+        return $bResult;
     }
 
     // --------------------------------------------------------------------------
 
     private function generateToken(User $oUser, bool $bIsRememebred, string $sIp): Token
     {
+        $this->oLogger->info(sprintf(
+            'Generating MFA Token; user: %s; remembered: %s; ip: %s',
+            $oUser->id,
+            json_encode($bIsRememebred),
+            $sIp
+        ));
+
         /** @var Input $oInput */
         $oInput = Factory::service('Input');
         /** @var MFA\Model\Token $oTokenModel */
@@ -102,12 +137,24 @@ class MultiFactorAuth
                 'ip'      => $sIp,
             ], true);
 
+        $this->oLogger->info(sprintf(
+            'Token generated with ID %s',
+            $oToken->id,
+        ));
+
         //  @todo (Pablo 2023-02-23) - persist session data?
 
-        $oToken->setData((object) [
+        $oData = (object) [
             static::TOKEN_DATA_KEY_RETURN_TO     => $oInput::get('return_to') ?: $oInput::server('URI_STRING'),
             static::TOKEN_DATA_KEY_IS_REMEMBERED => $bIsRememebred,
-        ]);
+        ];
+
+        $this->oLogger->info(sprintf(
+            'Setting token data; %s',
+            json_encode($oData)
+        ));
+
+        $oToken->setData($oData);
 
         return $oToken;
     }
@@ -181,7 +228,21 @@ class MultiFactorAuth
         /** @var \Nails\Auth\Service\Session $oSession */
         $oSession = Factory::service('Session');
 
-        return isLoggedIn() && $this->getIsPriviligedHash(activeUser()) === $oSession->getUserData(static::MFA_SESSION_IS_PRIVILGED_KEY);
+        $sActiveUserHash = $this->getIsPriviligedHash(activeUser());
+        $sStoredHash     = $oSession->getUserData(static::MFA_SESSION_IS_PRIVILGED_KEY);
+
+        $this->oLogger->info(sprintf(
+            'Checking if active user is privileged; active user %s; active user hash: %s; stored hash: %s',
+            activeUser()->id,
+            $sActiveUserHash,
+            $sStoredHash
+        ));
+
+        $bResult = isLoggedIn() && $sActiveUserHash === $sStoredHash;
+
+        $this->oLogger->info('User is priviliged: ' . json_encode($bResult));
+
+        return $bResult;
     }
 
     // --------------------------------------------------------------------------
@@ -190,7 +251,19 @@ class MultiFactorAuth
     {
         /** @var \Nails\Auth\Service\Session $oSession */
         $oSession = Factory::service('Session');
-        $oSession->setUserData(static::MFA_SESSION_IS_PRIVILGED_KEY, $this->getIsPriviligedHash($oUser));
+
+        $sKey   = static::MFA_SESSION_IS_PRIVILGED_KEY;
+        $sValue = $this->getIsPriviligedHash($oUser);
+
+        $this->oLogger->info(sprintf(
+            'Setting user as privileged; user %s; key: %s; value: %s',
+            $oUser->id,
+            $sKey,
+            $sValue
+        ));
+
+        $oSession->setUserData($sKey, $sValue);
+
         return $this;
     }
 

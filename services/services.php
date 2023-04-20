@@ -14,11 +14,18 @@ return [
                 return new Service\AuthenticationDriver();
             }
         },
-        'MultiFactorAuth' => function (): Service\MultiFactorAuth {
+        'MultiFactorAuth'      => function (): Service\MultiFactorAuth {
             if (class_exists('\App\MFA\Service\MultiFactorAuth')) {
                 return new \App\MFA\Service\MultiFactorAuth();
             } else {
                 return new Service\MultiFactorAuth();
+            }
+        },
+        'Logger'               => function (): Service\Logger {
+            if (class_exists('\App\MFA\Service\Logger')) {
+                return new \App\MFA\Service\Logger();
+            } else {
+                return new Service\Logger();
             }
         },
     ],

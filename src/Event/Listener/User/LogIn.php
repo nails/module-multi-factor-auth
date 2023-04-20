@@ -7,6 +7,7 @@ use Nails\Auth\Model\User;
 use Nails\MFA\Constants;
 use Nails\Auth\Events;
 use Nails\Auth\Service\Authentication;
+use Nails\MFA\Service\Logger;
 use Nails\MFA\Service\MultiFactorAuth;
 use Nails\Common\Events\Subscription;
 use Nails\Common\Exception\ValidationException;
@@ -28,12 +29,21 @@ class LogIn extends Subscription
 
     // --------------------------------------------------------------------------
 
-    public function execute(): void
+    public function execute(\Nails\Auth\Resource\User $oUser): void
     {
         /** @var MultiFactorAuth $oService */
         $oService = Factory::service('MultiFactorAuth', Constants::MODULE_SLUG);
+        /** @var Logger $oLogger */
+        $oLogger = Factory::service('Logger', Constants::MODULE_SLUG);
         /** @var User $oUserModel */
         $oUserModel = Factory::model('User', \Nails\Auth\Constants::MODULE_SLUG);
+
+        $oLogger->info(sprintf(
+            'Caught user login event for #%s %s (%s); checking if MFA is required',
+            $oUser->id,
+            $oUser->name,
+            $oUser->email
+        ));
 
         $oService->authenticate(
             $oUserModel->activeUser(),
