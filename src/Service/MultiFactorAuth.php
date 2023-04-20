@@ -86,9 +86,7 @@ class MultiFactorAuth
 
     public function isAuthenticated(): bool
     {
-        /** @var \Nails\Auth\Service\Session $oSession */
-        $oSession = Factory::service('Session');
-        $bResult  = isLoggedIn() && $this->isPrivileged();
+        $bResult = isLoggedIn() && $this->isPrivileged();
 
         $this->oLogger->info('Is Authenticated: ' . json_encode($bResult));
 
