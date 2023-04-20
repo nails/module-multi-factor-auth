@@ -11,6 +11,7 @@ use Nails\MFA\Constants;
 use Nails\MFA\Resource\Token;
 use Nails\Auth\Resource\User;
 use Nails\Common\Helper\Strings;
+use Nails\Common\Service\Cookie;
 use Nails\Common\Service\Database;
 use Nails\Common\Service\Encrypt;
 use Nails\Common\Service\Input;
@@ -22,7 +23,7 @@ class MultiFactorAuth
     const TOKEN_TTL                    = 300;
     const MFA_URL                      = 'mfa/%s';
     const MFA_URL_TOKEN_SEGMENT        = 2;
-    const MFA_SESSION_IS_PRIVILGED_KEY = 'mfa-is-priviliged';
+    const MFA_COOKIE_IS_PRIVILGED_KEY  = 'mfa-is-priviliged';
     const TOKEN_DATA_KEY_RETURN_TO     = 'return_to';
     const TOKEN_DATA_KEY_IS_REMEMBERED = 'is_remembered';
 
@@ -225,18 +226,24 @@ class MultiFactorAuth
 
     public function isPrivileged(): bool
     {
-        /** @var \Nails\Auth\Service\Session $oSession */
-        $oSession = Factory::service('Session');
-
-        $sActiveUserHash = $this->getIsPriviligedHash(activeUser());
-        $sStoredHash     = $oSession->getUserData(static::MFA_SESSION_IS_PRIVILGED_KEY);
+        /** @var Cookie $oCookie */
+        $oCookie = Factory::service('Cookie');
+        /** @var Encrypt $oEncrypt */
+        $oEncrypt = Factory::service('Encrypt');
 
         $this->oLogger->info(sprintf(
-            'Checking if active user is privileged; active user %s; active user hash: %s; stored hash: %s',
+            'Checking if active user is privileged; active user %s',
             activeUser()->id,
-            $sActiveUserHash,
-            $sStoredHash
         ));
+
+        $sActiveUserHash      = $this->getIsPriviligedHash(activeUser());
+        $oStoredHashEncrypted = $oCookie->read(static::MFA_COOKIE_IS_PRIVILGED_KEY);
+
+        if (empty($oStoredHashEncrypted)) {
+            return false;
+        }
+
+        $sStoredHash = $oEncrypt::decode($oStoredHashEncrypted->value);
 
         $bResult = isLoggedIn() && $sActiveUserHash === $sStoredHash;
 
@@ -249,20 +256,27 @@ class MultiFactorAuth
 
     public function setIsPriviliged(User $oUser): self
     {
-        /** @var \Nails\Auth\Service\Session $oSession */
-        $oSession = Factory::service('Session');
+        /** @var Cookie $oCookie */
+        $oCookie = Factory::service('Cookie');
+        /** @var Encrypt $oEncrypt */
+        $oEncrypt = Factory::service('Encrypt');
 
-        $sKey   = static::MFA_SESSION_IS_PRIVILGED_KEY;
+        $sKey   = static::MFA_COOKIE_IS_PRIVILGED_KEY;
         $sValue = $this->getIsPriviligedHash($oUser);
 
         $this->oLogger->info(sprintf(
             'Setting user as privileged; user %s; key: %s; value: %s',
             $oUser->id,
             $sKey,
-            $sValue
+            md5($sValue)
         ));
 
-        $oSession->setUserData($sKey, $sValue);
+        $oCookie
+            ->write(
+                $sKey,
+                $oEncrypt::encode($sValue),
+                '/'
+            );
 
         return $this;
     }
