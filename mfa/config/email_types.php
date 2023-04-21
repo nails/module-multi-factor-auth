@@ -1,9 +1,4 @@
 <?php
-/**
- * This config file defines all the email types for this app
- * Add new emails using the Nails CLI tool: nails make:email
- * Generated: 2022-08-22 14:07:29
- **/
 
 $config['email_types'] = [
     (object) [
@@ -17,6 +12,6 @@ $config['email_types'] = [
         'is_hidden'       => false,
         'is_editable'     => true,
         'can_unsubscribe' => false,
-        'factory'         => 'app/module-multi-factor-auth::EmailCode',
+        'factory'         => \Nails\MFA\Constants::MODULE_SLUG . '::EmailCode',
     ],
 ];
