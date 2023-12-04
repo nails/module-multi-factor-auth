@@ -28,7 +28,7 @@ $oView = Factory::service('View');
             ?>
             <div class="form__group <?=form_error('code') ? 'has-error' : ''?>">
                 <label for="input-code">Code</label>
-                <?=form_input('code', set_value('code'), 'id="input-code"')?>
+                <?=form_input('code', set_value('code'), 'id="input-code" autocomplete="one-time-code"')?>
             </div>
             <div class="form__group <?=form_error('remember') ? 'has-error' : ''?>">
                 <?=form_checkbox('remember', true, set_checkbox('remember'), 'id="input-remember"')?>
