@@ -23,8 +23,6 @@ $oView = Factory::service('View');
 
             $oView->load('auth/_components/alerts');
 
-            $sFieldKey = 'code';
-
             ?>
             <div class="form__group <?=form_error('code') ? 'has-error' : ''?>">
                 <label for="input-code">Code</label>
