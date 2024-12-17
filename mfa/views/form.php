@@ -57,7 +57,7 @@ $oView = Factory::service('View');
         <?=form_close()?>
     </div>
 </div>
-<script>
+<?=scriptOpen()?>
 
 var form = document.getElementById('mfa-form');
 var btnVerify = document.getElementById('mfa-btn-verify');
@@ -72,4 +72,4 @@ form.addEventListener('submit', function() {
     submitting.style.display = 'block';
 });
 
-</script>
+<?=scriptClose()?>
