@@ -72,7 +72,7 @@ class Token extends Resource\Entity
     /**
      * @return mixed
      */
-    public function getData(string $sKey = null)
+    public function getData(?string $sKey = null)
     {
         $oData = (object) json_decode($this->data ?? '');
         return $sKey ? ($oData->{$sKey} ?? null) : $oData;
