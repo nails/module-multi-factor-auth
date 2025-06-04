@@ -10,7 +10,7 @@ class Logger
 
     // --------------------------------------------------------------------------
 
-    public function __construct(Factory\Logger $oLogger = null)
+    public function __construct(?Factory\Logger $oLogger = null)
     {
         if ($oLogger) {
             $this->oLogger = $oLogger;
