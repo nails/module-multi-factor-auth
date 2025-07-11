@@ -12,49 +12,49 @@ use Nails\Factory;
 $oView = Factory::service('View');
 
 ?>
-<div class="nails-auth mfa u-center-screen">
+<div class="nails-auth mfa center-screen">
     <div class="panel">
-        <h1 class="panel__header text-center">
-            Two Factor Authentication
-        </h1>
-        <?=form_open(null, 'id="mfa-form"')?>
+        <div class="panel__header">
+            <h1 class="panel__title text-center">
+                Two Factor Authentication
+            </h1>
+        </div>
         <div class="panel__body">
             <?php
 
+            echo form_open(null, 'id="mfa-form" class="form"');
             $oView->load('auth/_components/alerts');
 
             ?>
-            <div class="form__group <?=form_error('code') ? 'has-error' : ''?>">
-                <label for="input-code">Code</label>
-                <?=form_input('code', set_value('code'), 'id="input-code" autocomplete="one-time-code"')?>
+            <div class="form__group">
+                <label class="form__label" for="input-code">Code</label>
+                <?=form_input('code', set_value('code'), 'id="input-code" autocomplete="one-time-code" class="form_control"')?>
             </div>
-            <div class="form__group <?=form_error('remember') ? 'has-error' : ''?>">
+            <div class="form__group form__group--checkbox-compact">
                 <?=form_checkbox('remember', true, set_checkbox('remember'), 'id="input-remember"')?>
                 <label for="input-remember">Don't ask again on this device</label>
             </div>
-            <p>
+            <div class="form__actions">
                 <button type="submit" name="action" value="verify" class="btn btn--block btn--primary" id="mfa-btn-verify">
                     Verify
                 </button>
-            </p>
-            <?php
+                <?php
 
-            if ($oDriver->canTryAgain()) {
-                ?>
-                <p>
+                if ($oDriver->canTryAgain()) {
+                    ?>
                     <button type="submit" name="action" value="restart" class="btn btn--block btn--secondary" id="mfa-btn-retry">
                         Request another verification code
                     </button>
-                </p>
-                <?php
-            }
+                    <?php
+                }
 
-            ?>
+                ?>
+            </div>
             <div id="mfa-submitting" style="display: none" class="form__group text-center">
                 Please wait...
             </div>
+            <?=form_close()?>
         </div>
-        <?=form_close()?>
     </div>
 </div>
 <?=scriptOpen()?>
