@@ -39,11 +39,11 @@ return [
         },
     ],
     'resources' => [
-        'Token' => function ($oObj): Resource\Token {
+        'Token' => function ($resource, $model): Resource\Token {
             if (class_exists('\App\MFA\Resource\Token')) {
-                return new \App\MFA\Resource\Token($oObj);
+                return new \App\MFA\Resource\Token($resource, $model);
             } else {
-                return new Resource\Token($oObj);
+                return new Resource\Token($resource, $model);
             }
         },
     ],
