@@ -1,27 +1,31 @@
-name: build_and_test
+name: static_analysis
 on:
+    pull_request:
+    # Run on push, but only if PHP files have changed
     push:
         branches: [ main, develop, feature/pre-new-admin ]
-    pull_request:
-        branches: [ main, develop, feature/pre-new-admin ]
+        paths:
+            - '**.php'
+            - 'composer.json'
+            - 'composer.lock'
+            - 'phpstan.neon'
+            - '.github/workflows/static_analysis.yml'
+
+env:
+    GITHUB_ACTIONS_NOTIFY_ON_FAILURE: false
 
 jobs:
-    test:
-        name: PHP ${{ matrix.php-version }} Test
+    phpstan:
+        name: Static Analysis
         runs-on: ubuntu-latest
-        strategy:
-            matrix:
-                php-version: [ '8.1', '8.2', '8.3', '8.4' ]
-            fail-fast: false  # Continue with other versions even if one fails
-
         steps:
             -   name: Checkout code
                 uses: actions/checkout@v2
 
-            -   name: Setup PHP ${{ matrix.php-version }}
+            -   name: Setup PHP
                 uses: shivammathur/setup-php@v2
                 with:
-                    php-version: ${{ matrix.php-version }}
+                    php-version: '8.4'
 
             -   name: Cache Composer dependencies
                 uses: actions/cache@v4
@@ -34,5 +38,6 @@ jobs:
             -   name: Install Composer dependencies
                 run: COMPOSER_ROOT_VERSION=dev-feature/pre-new-admin composer install --no-interaction --prefer-dist
 
-            -   name: Run tests
-                run: composer test
+            -   name: Run PHPStan
+                run: composer analyse
+                continue-on-error: true
