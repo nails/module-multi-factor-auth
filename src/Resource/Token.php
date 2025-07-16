@@ -8,6 +8,7 @@ use Nails\Common\Resource;
 use Nails\Common\Service\Encrypt;
 use Nails\Factory;
 use Nails\MFA\Constants;
+use stdClass;
 
 class Token extends Resource\Entity
 {
@@ -22,16 +23,6 @@ class Token extends Resource\Entity
     public ?string            $ip      = null;
     public ?Resource\DateTime $expires = null;
     public ?string            $data    = null;
-
-    // --------------------------------------------------------------------------
-
-    /**
-     * @param array<mixed>|\Nails\Common\Resource|\stdClass $mObj
-     */
-    public function __construct($mObj = [])
-    {
-        parent::__construct($mObj);
-    }
 
     // --------------------------------------------------------------------------
 
