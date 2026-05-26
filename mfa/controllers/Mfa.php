@@ -1,29 +1,52 @@
 <?php
 
-use Nails\MFA\Constants;
-use Nails\MFA\Service\MultiFactorAuth;
+use App\Controller;
+use Nails\Auth;
+use Nails\Common\Exception\AssetException;
+use Nails\Common\Exception\Encrypt\DecodeException;
+use Nails\Common\Exception\EnvironmentException;
+use Nails\Common\Exception\FactoryException;
+use Nails\Common\Exception\ModelException;
+use Nails\Common\Exception\NailsException;
+use Nails\Common\Exception\ViewNotFoundException;
+use Nails\Common\Service;
 use Nails\Config;
 use Nails\Factory;
+use Nails\MFA\Constants;
 use Nails\MFA\Exception;
+use Nails\MFA\Interfaces;
+use Nails\MFA\Model;
+use Nails\MFA\Resource;
+use Nails\MFA\Service\MultiFactorAuth;
 
-class Mfa extends \App\Controller\Base
+class Mfa extends Controller\Base
 {
+    /**
+     * @return void
+     * @throws Exception\MfaException
+     * @throws ReflectionException
+     * @throws DecodeException
+     * @throws EnvironmentException
+     * @throws FactoryException
+     * @throws ModelException
+     * @throws NailsException
+     */
     public function index()
     {
-        /** @var \Nails\Common\Service\Uri $oUri */
+        /** @var Service\Uri $oUri */
         $oUri = Factory::service('Uri');
-        /** @var \Nails\Common\Service\Input $oInput */
+        /** @var Service\Input $oInput */
         $oInput = Factory::service('Input');
-        /** @var \Nails\Common\Service\UserFeedback $oUserFeedback */
+        /** @var Service\UserFeedback $oUserFeedback */
         $oUserFeedback = Factory::service('UserFeedback');
         /** @var MultiFactorAuth $oMfaService */
         $oMfaService = Factory::service('MultiFactorAuth', Constants::MODULE_SLUG);
-        /** @var \Nails\MFA\Model\Token $oTokenModel */
+        /** @var Model\Token $oTokenModel */
         $oTokenModel = Factory::model('Token', Constants::MODULE_SLUG);
-        /** @var \Nails\Auth\Service\Authentication $oAuthenticationService */
-        $oAuthenticationService = Factory::service('Authentication', \Nails\Auth\Constants::MODULE_SLUG);
-        /** @var \Nails\Auth\Model\User $oUserModel */
-        $oUserModel = Factory::model('User', \Nails\Auth\Constants::MODULE_SLUG);
+        /** @var Auth\Service\Authentication $oAuthenticationService */
+        $oAuthenticationService = Factory::service('Authentication', Auth\Constants::MODULE_SLUG);
+        /** @var Auth\Model\User $oUserModel */
+        $oUserModel = Factory::model('User', Auth\Constants::MODULE_SLUG);
 
         // --------------------------------------------------------------------------
 
@@ -34,7 +57,7 @@ class Mfa extends \App\Controller\Base
             }
 
             $oToken = $oMfaService->getToken(
-                $oUri->segment(
+                (string) $oUri->segment(
                     $oMfaService::MFA_URL_TOKEN_SEGMENT
                 ),
                 $oInput::ipAddress()
@@ -69,7 +92,7 @@ class Mfa extends \App\Controller\Base
                         )
                     );
 
-                } catch (\Nails\MFA\Exception\InvalidCodeException $e) {
+                } catch (Exception\InvalidCodeException $e) {
                     $oUserFeedback->error($e->getMessage());
                     $this->renderForm($oDriver, $oToken);
                 }
@@ -105,7 +128,7 @@ class Mfa extends \App\Controller\Base
 
     // --------------------------------------------------------------------------
 
-    private function selectDriver(array $aDrivers): \Nails\MFA\Interfaces\Authentication\Driver
+    private function selectDriver(array $aDrivers): Interfaces\Authentication\Driver
     {
         //  @todo (Pablo 2023-02-22) - choose the appropriate driver for the user (e.g. email, app, etc)
         return reset($aDrivers);
@@ -113,11 +136,16 @@ class Mfa extends \App\Controller\Base
 
     // --------------------------------------------------------------------------
 
-    private function renderForm(\Nails\MFA\Interfaces\Authentication\Driver $oDriver, \Nails\MFA\Resource\Token $oToken): void
+    /**
+     * @throws FactoryException
+     * @throws ViewNotFoundException
+     * @throws \Exception
+     */
+    private function renderForm(Interfaces\Authentication\Driver $oDriver, Resource\Token $oToken): void
     {
         $this->loadStyles(Config::get('NAILS_APP_PATH') . 'application/modules/mfa/views/form.php');
 
-        /** @var \Nails\Common\Service\View $oView */
+        /** @var Service\View $oView */
         $oView = Factory::service('View');
         $oView
             ->setData([
@@ -133,11 +161,15 @@ class Mfa extends \App\Controller\Base
 
     // --------------------------------------------------------------------------
 
-    protected function loadStyles($sView)
+    /**
+     * @throws FactoryException
+     * @throws AssetException
+     */
+    protected function loadStyles($sView): void
     {
         //  Test if a view has been provided by the app
         if (!is_file($sView)) {
-            /** @var \Nails\Common\Service\Asset $oAsset */
+            /** @var Service\Asset $oAsset */
             $oAsset = Factory::service('Asset');
             $oAsset
                 ->clear()
