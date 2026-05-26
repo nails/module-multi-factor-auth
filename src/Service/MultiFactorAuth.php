@@ -2,31 +2,37 @@
 
 namespace Nails\MFA\Service;
 
+use DateMalformedIntervalStringException;
 use Nails\Auth;
-use Nails\Config;
-use Nails\MFA;
-use Nails\MFA\Exception\TokenException;
 use Nails\Auth\Model\User\Password;
-use Nails\MFA\Constants;
-use Nails\MFA\Resource\Token;
 use Nails\Auth\Resource\User;
+use Nails\Common\Exception\Encrypt\DecodeException;
+use Nails\Common\Exception\EnvironmentException;
+use Nails\Common\Exception\FactoryException;
+use Nails\Common\Exception\ModelException;
+use Nails\Common\Exception\NailsException;
+use Nails\Common\Factory\Component;
 use Nails\Common\Helper\Strings;
 use Nails\Common\Service\Cookie;
-use Nails\Common\Service\Database;
 use Nails\Common\Service\Encrypt;
 use Nails\Common\Service\Input;
-use Nails\Components;
+use Nails\Config;
 use Nails\Factory;
+use Nails\MFA;
+use Nails\MFA\Constants;
+use Nails\MFA\Exception\TokenException;
+use Nails\MFA\Resource\Token;
+use ReflectionException;
 
 class MultiFactorAuth
 {
-    const TOKEN_TTL                    = 300;
-    const MFA_URL                      = 'mfa/%s';
-    const MFA_URL_TOKEN_SEGMENT        = 2;
-    const MFA_COOKIE_IS_PRIVILEGED_KEY  = 'mfa-is-privileged';
-    const MFA_COOKIE_IS_PRIVILEGED_TTL  = 1209600; // 14 days
-    const TOKEN_DATA_KEY_RETURN_TO     = 'return_to';
-    const TOKEN_DATA_KEY_IS_REMEMBERED = 'is_remembered';
+    const int    TOKEN_TTL                    = 300;
+    const string MFA_URL                      = 'mfa/%s';
+    const int    MFA_URL_TOKEN_SEGMENT        = 2;
+    const string MFA_COOKIE_IS_PRIVILEGED_KEY = 'mfa-is-privileged';
+    const int    MFA_COOKIE_IS_PRIVILEGED_TTL = 1209600; // 14 days
+    const string TOKEN_DATA_KEY_RETURN_TO     = 'return_to';
+    const string TOKEN_DATA_KEY_IS_REMEMBERED = 'is_remembered';
 
     // --------------------------------------------------------------------------
 
@@ -34,6 +40,9 @@ class MultiFactorAuth
 
     // --------------------------------------------------------------------------
 
+    /**
+     * @throws FactoryException
+     */
     public function __construct()
     {
         $this->oLogger = Factory::service('Logger', Constants::MODULE_SLUG);
@@ -41,6 +50,11 @@ class MultiFactorAuth
 
     // --------------------------------------------------------------------------
 
+    /**
+     * @throws FactoryException
+     * @throws NailsException
+     * @throws ReflectionException
+     */
     public function authenticate(User $oUser, bool $bIsRemembered, bool $bForce = false): self
     {
         $this->oLogger->info(sprintf(
@@ -104,12 +118,17 @@ class MultiFactorAuth
 
     // --------------------------------------------------------------------------
 
-    private function generateToken(User $oUser, bool $bIsRememebred, string $sIp): Token
+    /**
+     * @throws FactoryException
+     * @throws ModelException
+     * @throws DateMalformedIntervalStringException
+     */
+    private function generateToken(User $oUser, bool $bIsRemembered, string $sIp): Token
     {
         $this->oLogger->info(sprintf(
             'Generating MFA Token; user: %s; remembered: %s; ip: %s',
             $oUser->id,
-            json_encode($bIsRememebred),
+            json_encode($bIsRemembered),
             $sIp
         ));
 
@@ -118,13 +137,13 @@ class MultiFactorAuth
         /** @var MFA\Model\Token $oTokenModel */
         $oTokenModel = Factory::model('Token', Constants::MODULE_SLUG);
         /** @var Password $oPasswordModel */
-        $oPasswordModel = Factory::model('UserPassword', \Nails\Auth\Constants::MODULE_SLUG);
+        $oPasswordModel = Factory::model('UserPassword', Auth\Constants::MODULE_SLUG);
 
         /** @var \DateTime $oNow */
         $oNow     = Factory::factory('DateTime');
         $oExpires = (clone $oNow)->add(new \DateInterval(sprintf('PT%dS', static::TOKEN_TTL)));
 
-        //  @todo (Pablo 2023-02-22) - tolerate save failure (duplicate?) perhaps do {} while() and an incementing counter
+        //  @todo (Pablo 2023-02-22) - tolerate save failure (duplicate?) perhaps do {} while() and an incrementing counter
 
         /** @var Token $oToken */
         $oToken = $oTokenModel
@@ -146,7 +165,7 @@ class MultiFactorAuth
 
         $oData = (object) [
             static::TOKEN_DATA_KEY_RETURN_TO     => $oInput::get('return_to') ?: $oInput::server('URI_STRING'),
-            static::TOKEN_DATA_KEY_IS_REMEMBERED => $bIsRememebred,
+            static::TOKEN_DATA_KEY_IS_REMEMBERED => $bIsRemembered,
         ];
 
         $this->oLogger->info(sprintf(
@@ -161,8 +180,23 @@ class MultiFactorAuth
 
     // --------------------------------------------------------------------------
 
+    /**
+     * @throws DecodeException
+     * @throws EnvironmentException
+     * @throws FactoryException
+     * @throws ModelException
+     * @throws TokenException
+     * @throws TokenException\DoesNotExistException
+     * @throws TokenException\InvalidIpException
+     * @throws TokenException\InvalidSaltException
+     * @throws TokenException\IsExpiredException
+     */
     public function getToken(string $sEncryptedToken, string $sIp): Token
     {
+        if (empty($sEncryptedToken)) {
+            throw new TokenException('Token cannot be empty');
+        }
+
         /** @var MFA\Model\Token $oTokenModel */
         $oTokenModel = Factory::model('Token', Constants::MODULE_SLUG);
         /** @var Encrypt $oEncrypt */
@@ -197,7 +231,7 @@ class MultiFactorAuth
 
     /**
      * @return MFA\Interfaces\Authentication\Driver[]
-     * @throws \Nails\Common\Exception\NailsException
+     * @throws NailsException
      * @throws MFA\Exception\MfaException
      */
     public function getAuthenticationMethods(User $oUser): array
@@ -206,7 +240,7 @@ class MultiFactorAuth
         $oService = Factory::service('AuthenticationDriver', Constants::MODULE_SLUG);
 
         $aDrivers = [];
-        /** @var \Nails\Common\Factory\Component[] $aEnabled */
+        /** @var Component[] $aEnabled */
         $aEnabled = $oService->getEnabled();
         foreach ($aEnabled as $oComponent) {
             $aDrivers[] = $oService->getInstance($oComponent);
@@ -223,6 +257,11 @@ class MultiFactorAuth
 
     // --------------------------------------------------------------------------
 
+    /**
+     * @throws DecodeException
+     * @throws EnvironmentException
+     * @throws FactoryException
+     */
     public function isPrivileged(): bool
     {
         /** @var Cookie $oCookie */
@@ -246,13 +285,17 @@ class MultiFactorAuth
 
         $bResult = isLoggedIn() && $sActiveUserHash === $sStoredHash;
 
-        $this->oLogger->info('User is priviliged: ' . json_encode($bResult));
+        $this->oLogger->info('User is privileged: ' . json_encode($bResult));
 
         return $bResult;
     }
 
     // --------------------------------------------------------------------------
 
+    /**
+     * @throws EnvironmentException
+     * @throws FactoryException
+     */
     public function setIsPrivileged(User $oUser, bool $bRemember = true): self
     {
         /** @var Cookie $oCookie */
