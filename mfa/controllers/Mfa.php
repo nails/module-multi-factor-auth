@@ -17,10 +17,26 @@ use Nails\MFA\Exception;
 use Nails\MFA\Interfaces;
 use Nails\MFA\Model;
 use Nails\MFA\Resource;
+use Nails\MFA\Service\Logger;
 use Nails\MFA\Service\MultiFactorAuth;
 
 class Mfa extends Controller\Base
 {
+    private Logger $oLogger;
+
+    // --------------------------------------------------------------------------
+
+    /**
+     * @throws FactoryException
+     */
+    public function __construct()
+    {
+        parent::__construct();
+        $this->oLogger = Factory::service('Logger', Constants::MODULE_SLUG);
+    }
+
+    // --------------------------------------------------------------------------
+
     /**
      * @return void
      * @throws Exception\MfaException
@@ -71,6 +87,8 @@ class Mfa extends Controller\Base
 
             if ($oInput::post('action') === 'verify') {
 
+                $this->log('User is attempting to verify');
+
                 try {
 
                     $oDriver->validate($oToken, $oInput::post('code'));
@@ -86,18 +104,31 @@ class Mfa extends Controller\Base
                         );
                     }
 
+                    $sRedirectUrl = $oToken->getData(
+                        $oMfaService::TOKEN_DATA_KEY_RETURN_TO
+                    );
+
+                    $this->log(sprintf(
+                        'User verified successfully, redirecting to "%s"',
+                        $sRedirectUrl ?? siteUrl()
+                    ));
+
                     redirect(
-                        $oToken->getData(
-                            $oMfaService::TOKEN_DATA_KEY_RETURN_TO
-                        )
+                        $sRedirectUrl
                     );
 
                 } catch (Exception\InvalidCodeException $e) {
+                    $this->log(sprintf(
+                        'Caught exception: [%s] %s',
+                        $e::class,
+                        $e->getMessage()
+                    ));
                     $oUserFeedback->error($e->getMessage());
                     $this->renderForm($oDriver, $oToken);
                 }
 
             } elseif ($oInput::post('action') === 'restart') {
+                $this->log('User is restarting authentication');
                 $oTokenModel->delete($oToken->id);
                 $oMfaService->authenticate(
                     $oToken->user(),
@@ -114,6 +145,11 @@ class Mfa extends Controller\Base
 
         } catch (Exception\TokenException\IsExpiredException $e) {
             //  Generate a new token to stay in the loop
+            $this->log(sprintf(
+                'Caught exception: [%s] %s',
+                $e::class,
+                $e->getMessage()
+            ));
             $oUserFeedback->info('Your session expired, please try again.');
             $oMfaService->authenticate(
                 $e->getToken()->user(),
@@ -121,9 +157,25 @@ class Mfa extends Controller\Base
                 true
             );
 
-        } catch (Exception\TokenException $e) {
+        } catch (Throwable $e) {
+            $this->log(sprintf(
+                'Caught exception: [%s] %s',
+                $e::class,
+                $e->getMessage()
+            ));
             show404();
         }
+    }
+
+    // --------------------------------------------------------------------------
+
+    private function log(string $sMessage): void
+    {
+        $this->oLogger->info(sprintf(
+            '[%s] %s',
+            static::class,
+            $sMessage
+        ));
     }
 
     // --------------------------------------------------------------------------
