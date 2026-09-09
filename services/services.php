@@ -37,6 +37,20 @@ return [
                 return new Model\Token();
             }
         },
+        'GroupPolicy' => function (): Model\GroupPolicy {
+            if (class_exists('\App\MFA\Model\GroupPolicy')) {
+                return new \App\MFA\Model\GroupPolicy();
+            } else {
+                return new Model\GroupPolicy();
+            }
+        },
+        'UserMethod' => function (): Model\UserMethod {
+            if (class_exists('\App\MFA\Model\UserMethod')) {
+                return new \App\MFA\Model\UserMethod();
+            } else {
+                return new Model\UserMethod();
+            }
+        },
     ],
     'resources' => [
         'Token' => function ($resource, $model): Resource\Token {
@@ -44,6 +58,20 @@ return [
                 return new \App\MFA\Resource\Token($resource, $model);
             } else {
                 return new Resource\Token($resource, $model);
+            }
+        },
+        'GroupPolicy' => function ($resource, $model): Resource\GroupPolicy {
+            if (class_exists('\App\MFA\Resource\GroupPolicy')) {
+                return new \App\MFA\Resource\GroupPolicy($resource, $model);
+            } else {
+                return new Resource\GroupPolicy($resource, $model);
+            }
+        },
+        'UserMethod' => function ($resource, $model): Resource\UserMethod {
+            if (class_exists('\App\MFA\Resource\UserMethod')) {
+                return new \App\MFA\Resource\UserMethod($resource, $model);
+            } else {
+                return new Resource\UserMethod($resource, $model);
             }
         },
     ],
