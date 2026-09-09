@@ -10,7 +10,10 @@ final class RoutesTest extends TestCase
     public function testTokenIsNotPartOfTheRoute(): void
     {
         self::assertSame(
-            ['mfa' => 'mfa/index'],
+            [
+                'mfa'        => 'mfa/index',
+                'mfa/manage' => 'mfa/manage',
+            ],
             Routes::generate()
         );
     }
