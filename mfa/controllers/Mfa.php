@@ -106,11 +106,11 @@ class Mfa extends Controller\Base
 
                     $sRedirectUrl = $oToken->getData(
                         $oMfaService::TOKEN_DATA_KEY_RETURN_TO
-                    );
+                    ) ?: siteUrl();
 
                     $this->log(sprintf(
                         'User verified successfully, redirecting to "%s"',
-                        $sRedirectUrl ?? siteUrl()
+                        $sRedirectUrl
                     ));
 
                     redirect(
