@@ -164,7 +164,9 @@ class MultiFactorAuth
         //  @todo (Pablo 2023-02-23) - persist session data?
 
         $oData = (object) [
-            static::TOKEN_DATA_KEY_RETURN_TO     => $oInput::get('return_to') ?: $oInput::server('URI_STRING'),
+            //  Mirrors module-auth's own post-login destination; the MFA redirect
+            //  happens during the log in event, so that never gets a chance to run
+            static::TOKEN_DATA_KEY_RETURN_TO     => $oInput::get('return_to') ?: $oUser->group_homepage,
             static::TOKEN_DATA_KEY_IS_REMEMBERED => $bIsRemembered,
         ];
 
