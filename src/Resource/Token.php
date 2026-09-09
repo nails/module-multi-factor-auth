@@ -16,13 +16,14 @@ class Token extends Resource\Entity
 
     // --------------------------------------------------------------------------
 
-    public ?int               $user_id = null;
-    public ?User              $user    = null;
-    public ?string            $token   = null;
-    public ?string            $salt    = null;
-    public ?string            $ip      = null;
-    public ?Resource\DateTime $expires = null;
-    public ?string            $data    = null;
+    public ?int               $user_id  = null;
+    public ?User              $user     = null;
+    public ?string            $token    = null;
+    public ?string            $salt     = null;
+    public int                $attempts = 0;
+    public ?string            $ip       = null;
+    public ?Resource\DateTime $expires  = null;
+    public ?string            $data     = null;
 
     // --------------------------------------------------------------------------
 

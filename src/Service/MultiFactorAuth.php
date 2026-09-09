@@ -14,21 +14,27 @@ use Nails\Common\Exception\NailsException;
 use Nails\Common\Factory\Component;
 use Nails\Common\Helper\Strings;
 use Nails\Common\Service\Cookie;
+use Nails\Common\Service\Database;
 use Nails\Common\Service\Encrypt;
 use Nails\Common\Service\Input;
 use Nails\Config;
 use Nails\Factory;
 use Nails\MFA;
 use Nails\MFA\Constants;
+use Nails\MFA\Exception\MfaException;
 use Nails\MFA\Exception\TokenException;
+use Nails\MFA\Exception\TokenMintLimitException;
 use Nails\MFA\Resource\Token;
 use ReflectionException;
+use Throwable;
 
 class MultiFactorAuth
 {
     const int    TOKEN_TTL                    = 300;
-    const string MFA_URL                      = 'mfa/%s';
-    const int    MFA_URL_TOKEN_SEGMENT        = 2;
+    const int    MAX_VERIFICATION_ATTEMPTS    = 5;
+    const int    MAX_TOKEN_MINTS_PER_HOUR     = 5;
+    const string MFA_URL                      = 'mfa';
+    const string MFA_COOKIE_TOKEN_KEY         = 'mfa-token';
     const string MFA_COOKIE_IS_PRIVILEGED_KEY = 'mfa-is-privileged';
     const int    MFA_COOKIE_IS_PRIVILEGED_TTL = 1209600; // 14 days
     const string TOKEN_DATA_KEY_RETURN_TO     = 'return_to';
@@ -45,7 +51,9 @@ class MultiFactorAuth
      */
     public function __construct()
     {
-        $this->oLogger = Factory::service('Logger', Constants::MODULE_SLUG);
+        /** @var Logger $oLogger */
+        $oLogger       = Factory::service('Logger', Constants::MODULE_SLUG);
+        $this->oLogger = $oLogger;
     }
 
     // --------------------------------------------------------------------------
@@ -78,19 +86,25 @@ class MultiFactorAuth
                 $oAuth->logout();
             }
 
-            $sUrl = sprintf(
-                static::MFA_URL,
-                urlencode(
-                    $this->generateToken(
-                        $oUser,
-                        $bIsRemembered,
-                        $oInput::ipAddress()
-                    )
-                )
+            $oToken = $this->generateToken(
+                $oUser,
+                $bIsRemembered,
+                $oInput::ipAddress()
             );
 
-            $this->oLogger->info('Redirecting to: ' . $sUrl);
-            redirect($sUrl);
+            if (!$this->setTokenCookie($oToken)) {
+                /** @var MFA\Model\Token $oTokenModel */
+                $oTokenModel = Factory::model('Token', Constants::MODULE_SLUG);
+                if ($oToken->id) {
+                    $oTokenModel->delete($oToken->id);
+                }
+                throw new MfaException(
+                    'We could not continue your sign-in. Please enable cookies and try again.'
+                );
+            }
+
+            $this->oLogger->info('Redirecting to: ' . static::MFA_URL);
+            redirect(static::MFA_URL);
         }
 
         return $this;
@@ -134,34 +148,18 @@ class MultiFactorAuth
 
         /** @var Input $oInput */
         $oInput = Factory::service('Input');
+        /** @var Database $oDb */
+        $oDb = Factory::service('Database');
         /** @var MFA\Model\Token $oTokenModel */
         $oTokenModel = Factory::model('Token', Constants::MODULE_SLUG);
         /** @var Password $oPasswordModel */
         $oPasswordModel = Factory::model('UserPassword', Auth\Constants::MODULE_SLUG);
+        /** @var Auth\Model\User $oUserModel */
+        $oUserModel = Factory::model('User', Auth\Constants::MODULE_SLUG);
 
         /** @var \DateTime $oNow */
         $oNow     = Factory::factory('DateTime');
         $oExpires = (clone $oNow)->add(new \DateInterval(sprintf('PT%dS', static::TOKEN_TTL)));
-
-        //  @todo (Pablo 2023-02-22) - tolerate save failure (duplicate?) perhaps do {} while() and an incrementing counter
-
-        /** @var Token $oToken */
-        $oToken = $oTokenModel
-            ->create([
-                'user_id' => $oUser->id,
-                'token'   => Strings::generateToken(),
-                'salt'    => $oPasswordModel->salt(),
-                'created' => $oNow->format('Y-m-d H:i:s'),
-                'expires' => $oExpires->format('Y-m-d H:i:s'),
-                'ip'      => $sIp,
-            ], true);
-
-        $this->oLogger->info(sprintf(
-            'Token generated with ID %s',
-            $oToken->id,
-        ));
-
-        //  @todo (Pablo 2023-02-23) - persist session data?
 
         $oData = (object) [
             //  Mirrors module-auth's own post-login destination; the MFA redirect
@@ -170,14 +168,67 @@ class MultiFactorAuth
             static::TOKEN_DATA_KEY_IS_REMEMBERED => $bIsRemembered,
         ];
 
-        $this->oLogger->info(sprintf(
-            'Setting token data; %s',
-            json_encode($oData)
-        ));
+        $oDb->transaction()->start();
 
-        $oToken->setData($oData);
+        try {
+            //  Serialise token minting for this user so parallel login requests
+            //  cannot race past the hourly cap.
+            $oDb->query(
+                sprintf('SELECT `id` FROM `%s` WHERE `id` = ? FOR UPDATE', $oUserModel->getTableName()),
+                [$oUser->id]
+            );
 
-        return $oToken;
+            //  Deleted rows remain for the duration of the mint window so
+            //  exhausting or completing a token cannot free another slot.
+            $oDb->query(
+                sprintf(
+                    'DELETE FROM `%s` WHERE `user_id` = ? AND `created` < DATE_SUB(NOW(), INTERVAL 1 HOUR)',
+                    $oTokenModel->getTableName()
+                ),
+                [$oUser->id]
+            );
+
+            $oDb->where('user_id', $oUser->id);
+            $oDb->where('created >=', 'DATE_SUB(NOW(), INTERVAL 1 HOUR)', false);
+
+            if ($oDb->count_all_results($oTokenModel->getTableName()) >= static::MAX_TOKEN_MINTS_PER_HOUR) {
+                throw new TokenMintLimitException(
+                    'We could not complete your sign-in. Please wait and try again later.'
+                );
+            }
+
+            //  @todo (Pablo 2023-02-22) - tolerate save failure (duplicate?) perhaps do {} while() and an incrementing counter
+
+            /** @var Token $oToken */
+            $oToken = $oTokenModel
+                ->create([
+                    'user_id' => $oUser->id,
+                    'token'   => Strings::generateToken(),
+                    'salt'    => $oPasswordModel->salt(),
+                    'created' => $oNow->format('Y-m-d H:i:s'),
+                    'expires' => $oExpires->format('Y-m-d H:i:s'),
+                    'ip'      => $sIp,
+                ], true);
+
+            $this->oLogger->info(sprintf(
+                'Token generated with ID %s',
+                $oToken->id,
+            ));
+
+            $this->oLogger->info(sprintf(
+                'Setting token data; %s',
+                json_encode($oData)
+            ));
+
+            $oToken->setData($oData);
+            $oDb->transaction()->commit();
+
+            return $oToken;
+
+        } catch (Throwable $e) {
+            $oDb->transaction()->rollback();
+            throw $e;
+        }
     }
 
     // --------------------------------------------------------------------------
@@ -189,11 +240,10 @@ class MultiFactorAuth
      * @throws ModelException
      * @throws TokenException
      * @throws TokenException\DoesNotExistException
-     * @throws TokenException\InvalidIpException
      * @throws TokenException\InvalidSaltException
      * @throws TokenException\IsExpiredException
      */
-    public function getToken(string $sEncryptedToken, string $sIp): Token
+    public function getToken(string $sEncryptedToken): Token
     {
         if (empty($sEncryptedToken)) {
             throw new TokenException('Token cannot be empty');
@@ -206,6 +256,10 @@ class MultiFactorAuth
 
         $sDecryptedToken = $oEncrypt::decode($sEncryptedToken);
         [$sSalt, $sToken] = array_pad(explode(Token::DELIMITER, $sDecryptedToken), 2, null);
+
+        if (empty($sSalt) || empty($sToken)) {
+            throw new TokenException('Token is malformed');
+        }
 
         /** @var Token|null $oToken */
         $oToken = $oTokenModel->getByToken($sToken);
@@ -220,13 +274,118 @@ class MultiFactorAuth
         } elseif ($oToken->salt !== $sSalt) {
             throw (new TokenException\InvalidSaltException('Token salt does not match supplied salt'))
                 ->setToken($oToken);
-
-        } elseif ($oToken->ip !== $sIp) {
-            throw (new TokenException\InvalidIpException('Token IP does not match supplied IP'))
-                ->setToken($oToken);
         }
 
         return $oToken;
+    }
+
+    // --------------------------------------------------------------------------
+
+    /**
+     * @throws DecodeException
+     * @throws EnvironmentException
+     * @throws FactoryException
+     * @throws ModelException
+     * @throws TokenException
+     */
+    public function getTokenFromCookie(): Token
+    {
+        /** @var Cookie $oCookie */
+        $oCookie      = Factory::service('Cookie');
+        $oStoredToken = $oCookie->read(static::MFA_COOKIE_TOKEN_KEY);
+
+        if (empty($oStoredToken) || empty($oStoredToken->value)) {
+            throw new TokenException\MissingCookieException(
+                'We could not continue your sign-in. Please enable cookies and try again.'
+            );
+        }
+
+        return $this->getToken($oStoredToken->value);
+    }
+
+    // --------------------------------------------------------------------------
+
+    /**
+     * Atomically claims a verification attempt and invalidates exhausted tokens.
+     * This must be called before the driver compares the code. Recording only
+     * after a mismatch allows parallel requests to perform unlimited comparisons
+     * before any of them increment the counter.
+     *
+     * @throws FactoryException
+     * @throws ModelException
+     * @throws TokenException\TooManyAttemptsException
+     */
+    public function registerFailedAttempt(Token $oToken): void
+    {
+        /** @var Database $oDb */
+        $oDb = Factory::service('Database');
+        /** @var MFA\Model\Token $oTokenModel */
+        $oTokenModel = Factory::model('Token', Constants::MODULE_SLUG);
+        $sTable      = $oTokenModel->getTableName();
+
+        if (empty($oToken->id)) {
+            throw (new TokenException\TooManyAttemptsException(
+                'Too many incorrect codes. Please sign in again.'
+            ))->setToken($oToken);
+        }
+
+        $oDb->set('attempts', 'attempts + 1', false);
+        $oDb->where('id', $oToken->id);
+        $oDb->where('attempts <', static::MAX_VERIFICATION_ATTEMPTS);
+        $oDb->update($sTable);
+
+        $bAttemptClaimed = $oDb->affected_rows() === 1;
+        $oDb->select('attempts');
+        $oDb->where('id', $oToken->id);
+        /** @var mixed $oResult */
+        $oResult   = $oDb->get($sTable);
+        $oAttempts = $oResult->row();
+
+        if (!$bAttemptClaimed || empty($oAttempts)) {
+            if (!empty($oAttempts)) {
+                $oTokenModel->delete($oToken->id);
+            }
+
+            throw (new TokenException\TooManyAttemptsException(
+                'Too many incorrect codes. Please sign in again.'
+            ))->setToken($oToken);
+        }
+
+        $oToken->attempts = (int) $oAttempts->attempts;
+    }
+
+    // --------------------------------------------------------------------------
+
+    /**
+     * @throws FactoryException
+     */
+    public function setTokenCookie(Token $oToken): bool
+    {
+        /** @var Cookie $oCookie */
+        $oCookie = Factory::service('Cookie');
+
+        return $oCookie->write(
+            static::MFA_COOKIE_TOKEN_KEY,
+            (string) $oToken,
+            static::TOKEN_TTL,
+            '/',
+            '',
+            true,
+            true,
+            'Lax'
+        );
+    }
+
+    // --------------------------------------------------------------------------
+
+    /**
+     * @throws FactoryException
+     */
+    public function clearTokenCookie(): void
+    {
+        /** @var Cookie $oCookie */
+        $oCookie = Factory::service('Cookie');
+        $oCookie->delete(static::MFA_COOKIE_TOKEN_KEY, '/');
     }
 
     // --------------------------------------------------------------------------

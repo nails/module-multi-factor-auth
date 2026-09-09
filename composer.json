@@ -5,6 +5,7 @@
     "prefer-stable": true,
     "require": {
         "php": ">=8.3",
+        "nails/common": "dev-feature/pre-new-admin",
         "nails/module-auth": "dev-feature/pre-new-admin",
         "nails/module-email": "dev-feature/pre-new-admin"
     },
