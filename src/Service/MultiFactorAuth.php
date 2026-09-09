@@ -6,12 +6,14 @@ use DateMalformedIntervalStringException;
 use Nails\Auth;
 use Nails\Auth\Model\User\Password;
 use Nails\Auth\Resource\User;
-use Nails\Common\Exception\Encrypt\DecodeException;
 use Nails\Common\Exception\EnvironmentException;
 use Nails\Common\Exception\FactoryException;
 use Nails\Common\Exception\ModelException;
 use Nails\Common\Exception\NailsException;
 use Nails\Common\Factory\Component;
+use Nails\Common\Helper\Model\Limit;
+use Nails\Common\Helper\Model\Sort;
+use Nails\Common\Helper\Model\Where;
 use Nails\Common\Helper\Strings;
 use Nails\Common\Service\Cookie;
 use Nails\Common\Service\Database;
@@ -26,19 +28,26 @@ use Nails\MFA\Exception\TokenException;
 use Nails\MFA\Exception\TokenMintLimitException;
 use Nails\MFA\Resource\Token;
 use ReflectionException;
+use stdClass;
 use Throwable;
 
 class MultiFactorAuth
 {
     const int    TOKEN_TTL                    = 300;
+    const int    TOKEN_REUSE_MIN_TTL          = 30;
     const int    MAX_VERIFICATION_ATTEMPTS    = 5;
+    const int    MAX_RESENDS_PER_TOKEN        = 3;
     const int    MAX_TOKEN_MINTS_PER_HOUR     = 5;
     const string MFA_URL                      = 'mfa';
     const string MFA_COOKIE_TOKEN_KEY         = 'mfa-token';
     const string MFA_COOKIE_IS_PRIVILEGED_KEY = 'mfa-is-privileged';
     const int    MFA_COOKIE_IS_PRIVILEGED_TTL = 1209600; // 14 days
-    const string TOKEN_DATA_KEY_RETURN_TO     = 'return_to';
-    const string TOKEN_DATA_KEY_IS_REMEMBERED = 'is_remembered';
+    const string TOKEN_DATA_KEY_RETURN_TO      = 'return_to';
+    const string TOKEN_DATA_KEY_IS_REMEMBERED  = 'is_remembered';
+    const string TOKEN_DATA_KEY_DRIVER         = 'driver';
+    const string TOKEN_DATA_KEY_PENDING_SETUP  = 'pending_setup';
+    const string TOKEN_DATA_KEY_IS_SETUP        = 'is_setup';
+    const string TOKEN_DATA_KEY_RESENDS         = 'resends';
 
     // --------------------------------------------------------------------------
 
@@ -125,9 +134,119 @@ class MultiFactorAuth
 
     public function requiresAuthentication(): bool
     {
-        $bResult = !$this->isAuthenticated() && !wasAdmin();
+        $bResult = !$this->isAuthenticated()
+            && !wasAdmin()
+            && isLoggedIn()
+            && $this->userRequiresChallenge(activeUser());
+
         $this->oLogger->info('Requires Authentication: ' . json_encode($bResult));
         return $bResult;
+    }
+
+    // --------------------------------------------------------------------------
+
+    /**
+     * @throws FactoryException
+     * @throws ModelException
+     */
+    public function userRequiresChallenge(User $oUser): bool
+    {
+        $sMode = $this->getGroupMode($oUser);
+
+        if ($sMode === MFA\Model\GroupPolicy::MODE_DISABLED) {
+            return false;
+        }
+
+        if ($sMode === MFA\Model\GroupPolicy::MODE_OPTIONAL && empty($this->getUserMethods($oUser))) {
+            return false;
+        }
+
+        return true;
+    }
+
+    // --------------------------------------------------------------------------
+
+    /**
+     * @throws FactoryException
+     * @throws ModelException
+     */
+    public function getGroupMode(User $oUser): string
+    {
+        /** @var MFA\Model\GroupPolicy $oPolicyModel */
+        $oPolicyModel = Factory::model('GroupPolicy', Constants::MODULE_SLUG);
+
+        return $oPolicyModel->getModeForGroup((int) $oUser->group_id);
+    }
+
+    // --------------------------------------------------------------------------
+
+    /**
+     * Whether the user's group allows them to manage MFA methods.
+     *
+     * @throws FactoryException
+     * @throws ModelException
+     */
+    public function userCanManageMethods(User $oUser): bool
+    {
+        $sMode = $this->getGroupMode($oUser);
+
+        return $sMode === MFA\Model\GroupPolicy::MODE_OPTIONAL
+            || $sMode === MFA\Model\GroupPolicy::MODE_REQUIRED;
+    }
+
+    // --------------------------------------------------------------------------
+
+    /**
+     * Whether the user has anything they can change on the management screen:
+     * adding a method, removing one, or choosing a different default.
+     *
+     * @throws FactoryException
+     * @throws ModelException
+     */
+    public function userCanConfigureMethods(User $oUser): bool
+    {
+        if (!$this->userCanManageMethods($oUser)) {
+            return false;
+        }
+
+        $aMethods = $this->getUserMethods($oUser);
+
+        //  Several methods can be removed, or have the default moved between them
+        if (count($aMethods) > 1) {
+            return true;
+        }
+
+        foreach ($aMethods as $oMethod) {
+            if ($this->userCanRemoveMethod($oUser, (string) $oMethod->driver)) {
+                return true;
+            }
+        }
+
+        try {
+            return !empty($this->getSetupDrivers($oUser));
+        } catch (MFA\Exception\MfaException $e) {
+            //  With no enabled drivers there is nothing new to set up
+            return false;
+        }
+    }
+
+    // --------------------------------------------------------------------------
+
+    /**
+     * Whether a method can be given up: a user cannot be left with none while
+     * their group requires MFA.
+     *
+     * @throws FactoryException
+     * @throws ModelException
+     */
+    public function userCanRemoveMethod(User $oUser, string $sDriver): bool
+    {
+        if (!$this->getUserMethod($oUser, $sDriver)) {
+            return false;
+        }
+
+        return count($this->getUserMethods($oUser)) > 1
+            || $this->getGroupMode($oUser) !== MFA\Model\GroupPolicy::MODE_REQUIRED;
     }
 
     // --------------------------------------------------------------------------
@@ -188,6 +307,32 @@ class MultiFactorAuth
                 [$oUser->id]
             );
 
+            /**
+             * A user only ever needs one outstanding challenge, so an abandoned
+             * one is handed back rather than minting another. Without this, simply
+             * signing in again consumes the hourly allowance and locks the user
+             * out of their own account. The expiry is deliberately not extended.
+             */
+            $oExisting = $this->getLiveToken($oUser);
+
+            if ($oExisting) {
+
+                $this->oLogger->info(sprintf(
+                    'Reusing live token with ID %s',
+                    $oExisting->id,
+                ));
+
+                $this->oLogger->info(sprintf(
+                    'Setting token data; %s',
+                    json_encode($oData)
+                ));
+
+                $oExisting->setData($oData);
+                $oDb->transaction()->commit();
+
+                return $oExisting;
+            }
+
             $oDb->where('user_id', $oUser->id);
             $oDb->where('created >=', 'DATE_SUB(NOW(), INTERVAL 1 HOUR)', false);
 
@@ -234,8 +379,37 @@ class MultiFactorAuth
     // --------------------------------------------------------------------------
 
     /**
-     * @throws DecodeException
-     * @throws EnvironmentException
+     * The user's outstanding challenge, if they have one which is still worth
+     * completing, i.e. it has enough life left in it and has not had its
+     * verification attempts exhausted.
+     *
+     * @throws FactoryException
+     * @throws ModelException
+     */
+    protected function getLiveToken(User $oUser): ?Token
+    {
+        /** @var MFA\Model\Token $oTokenModel */
+        $oTokenModel = Factory::model('Token', Constants::MODULE_SLUG);
+
+        /** @var \DateTime $oThreshold */
+        $oThreshold = Factory::factory('DateTime');
+        $oThreshold->add(new \DateInterval(sprintf('PT%dS', static::TOKEN_REUSE_MIN_TTL)));
+
+        /** @var Token|null $oToken */
+        $oToken = $oTokenModel->getAll([
+            new Where('user_id', $oUser->id),
+            new Where('expires >', $oThreshold->format('Y-m-d H:i:s')),
+            new Where('attempts <', static::MAX_VERIFICATION_ATTEMPTS),
+            new Sort('id', Sort::DESC),
+            new Limit(1),
+        ])[0] ?? null;
+
+        return $oToken;
+    }
+
+    // --------------------------------------------------------------------------
+
+    /**
      * @throws FactoryException
      * @throws ModelException
      * @throws TokenException
@@ -251,10 +425,16 @@ class MultiFactorAuth
 
         /** @var MFA\Model\Token $oTokenModel */
         $oTokenModel = Factory::model('Token', Constants::MODULE_SLUG);
-        /** @var Encrypt $oEncrypt */
-        $oEncrypt = Factory::service('Encrypt');
 
-        $sDecryptedToken = $oEncrypt::decode($sEncryptedToken);
+        $sDecryptedToken = $this->decryptUntrustedValue(
+            $sEncryptedToken,
+            sprintf('the "%s" cookie', static::MFA_COOKIE_TOKEN_KEY)
+        );
+
+        if ($sDecryptedToken === null) {
+            throw new TokenException('Token could not be decrypted');
+        }
+
         [$sSalt, $sToken] = array_pad(explode(Token::DELIMITER, $sDecryptedToken), 2, null);
 
         if (empty($sSalt) || empty($sToken)) {
@@ -282,8 +462,6 @@ class MultiFactorAuth
     // --------------------------------------------------------------------------
 
     /**
-     * @throws DecodeException
-     * @throws EnvironmentException
      * @throws FactoryException
      * @throws ModelException
      * @throws TokenException
@@ -301,6 +479,28 @@ class MultiFactorAuth
         }
 
         return $this->getToken($oStoredToken->value);
+    }
+
+    // --------------------------------------------------------------------------
+
+    /**
+     * Claims one of the challenge's replacement codes, if any are left. The
+     * allowance exists because each one sends the user a message they did not
+     * necessarily ask for.
+     */
+    public function claimResend(Token $oToken): bool
+    {
+        $iResends = (int) $oToken->getData(static::TOKEN_DATA_KEY_RESENDS);
+
+        if ($iResends >= static::MAX_RESENDS_PER_TOKEN) {
+            return false;
+        }
+
+        $oToken->setData((object) [
+            static::TOKEN_DATA_KEY_RESENDS => $iResends + 1,
+        ]);
+
+        return true;
     }
 
     // --------------------------------------------------------------------------
@@ -391,11 +591,57 @@ class MultiFactorAuth
     // --------------------------------------------------------------------------
 
     /**
+     * @throws FactoryException
+     */
+    public function clearIsPrivilegedCookie(): void
+    {
+        /** @var Cookie $oCookie */
+        $oCookie = Factory::service('Cookie');
+        $oCookie->delete(static::MFA_COOKIE_IS_PRIVILEGED_KEY, '/');
+    }
+
+    // --------------------------------------------------------------------------
+
+    /**
+     * Decrypts a value which originated from user input, e.g. a cookie.
+     *
+     * Such values are routinely truncated, tampered with, or encrypted using a
+     * since-rotated key; the crypto library treats all of those as exceptions.
+     * They are not exceptional here, so return null and let the caller decide
+     * how to recover. Callers must treat null as "no valid value".
+     */
+    protected function decryptUntrustedValue(string $sCipher, string $sDescription): ?string
+    {
+        if ($sCipher === '') {
+            return null;
+        }
+
+        /** @var Encrypt $oEncrypt */
+        $oEncrypt = Factory::service('Encrypt');
+
+        try {
+            return $oEncrypt::decode($sCipher);
+
+        } catch (Throwable $e) {
+            $this->oLogger->warning(sprintf(
+                'Could not decrypt %s; treating it as absent: [%s] %s',
+                $sDescription,
+                $e::class,
+                $e->getMessage()
+            ));
+
+            return null;
+        }
+    }
+
+    // --------------------------------------------------------------------------
+
+    /**
      * @return MFA\Interfaces\Authentication\Driver[]
      * @throws NailsException
      * @throws MFA\Exception\MfaException
      */
-    public function getAuthenticationMethods(User $oUser): array
+    public function getEnabledDrivers(): array
     {
         /** @var AuthenticationDriver $oService */
         $oService = Factory::service('AuthenticationDriver', Constants::MODULE_SLUG);
@@ -407,8 +653,6 @@ class MultiFactorAuth
             $aDrivers[] = $oService->getInstance($oComponent);
         }
 
-        //  @todo (Pablo 2023-02-22) - filter out drivers which are not configured for this user
-
         if (empty($aDrivers)) {
             throw new MFA\Exception\MfaException('No MFA drivers are available');
         }
@@ -419,16 +663,367 @@ class MultiFactorAuth
     // --------------------------------------------------------------------------
 
     /**
-     * @throws DecodeException
-     * @throws EnvironmentException
+     * Enabled drivers the user has enrolled in.
+     *
+     * @return MFA\Interfaces\Authentication\Driver[]
+     * @throws NailsException
+     * @throws MFA\Exception\MfaException
+     */
+    public function getAuthenticationMethods(User $oUser): array
+    {
+        $aEnrolledSlugs = array_map(
+            fn(MFA\Resource\UserMethod $oMethod) => $oMethod->driver,
+            $this->getUserMethods($oUser)
+        );
+
+        $aDrivers = [];
+        foreach ($this->getEnabledDrivers() as $oDriver) {
+            $sSlug = $oDriver->getSlug();
+            if (in_array($sSlug, $aEnrolledSlugs, true)) {
+                $aDrivers[] = $oDriver;
+            }
+        }
+
+        return $aDrivers;
+    }
+
+    // --------------------------------------------------------------------------
+
+    /**
+     * Enabled drivers the user can still enroll in.
+     *
+     * @return MFA\Interfaces\Authentication\Driver[]
+     * @throws NailsException
+     */
+    public function getSetupDrivers(User $oUser): array
+    {
+        $aEnrolledSlugs = array_map(
+            fn(MFA\Resource\UserMethod $oMethod) => $oMethod->driver,
+            $this->getUserMethods($oUser)
+        );
+
+        $aDrivers = [];
+        foreach ($this->getEnabledDrivers() as $oDriver) {
+            if (!in_array($oDriver->getSlug(), $aEnrolledSlugs, true)) {
+                $aDrivers[] = $oDriver;
+            }
+        }
+
+        return $aDrivers;
+    }
+
+    // --------------------------------------------------------------------------
+
+    /**
+     * @throws NailsException
+     * @throws MFA\Exception\MfaException
+     */
+    public function getDriverBySlug(string $sSlug): MFA\Interfaces\Authentication\Driver
+    {
+        /** @var AuthenticationDriver $oService */
+        $oService = Factory::service('AuthenticationDriver', Constants::MODULE_SLUG);
+        $oDriver  = $oService->getInstance($sSlug);
+
+        if (empty($oDriver)) {
+            throw new MFA\Exception\MfaException('Unknown MFA driver: ' . $sSlug);
+        }
+
+        return $oDriver;
+    }
+
+    // --------------------------------------------------------------------------
+
+    /**
+     * @return MFA\Resource\UserMethod[]
+     * @throws FactoryException
+     * @throws ModelException
+     */
+    public function getUserMethods(User $oUser): array
+    {
+        /** @var MFA\Model\UserMethod $oModel */
+        $oModel = Factory::model('UserMethod', Constants::MODULE_SLUG);
+
+        return $oModel->getByUserId((int) $oUser->id);
+    }
+
+    // --------------------------------------------------------------------------
+
+    /**
+     * @throws FactoryException
+     * @throws ModelException
+     */
+    public function getUserMethod(User $oUser, string $sDriver): ?MFA\Resource\UserMethod
+    {
+        /** @var MFA\Model\UserMethod $oModel */
+        $oModel = Factory::model('UserMethod', Constants::MODULE_SLUG);
+
+        return $oModel->getByUserAndDriver((int) $oUser->id, $sDriver);
+    }
+
+    // --------------------------------------------------------------------------
+
+    /**
+     * @throws FactoryException
+     * @throws ModelException
+     */
+    public function getDefaultUserMethod(User $oUser): ?MFA\Resource\UserMethod
+    {
+        /** @var MFA\Model\UserMethod $oModel */
+        $oModel = Factory::model('UserMethod', Constants::MODULE_SLUG);
+
+        return $oModel->getDefaultForUser((int) $oUser->id);
+    }
+
+    // --------------------------------------------------------------------------
+
+    public function userNeedsSetup(User $oUser): bool
+    {
+        return $this->getGroupMode($oUser) === MFA\Model\GroupPolicy::MODE_REQUIRED
+            && empty($this->getUserMethods($oUser));
+    }
+
+    // --------------------------------------------------------------------------
+
+    /**
+     * @throws FactoryException
+     * @throws ModelException
+     * @throws NailsException
+     */
+    public function selectDriver(User $oUser, Token $oToken): ?MFA\Interfaces\Authentication\Driver
+    {
+        $sSelected = $oToken->getData(static::TOKEN_DATA_KEY_DRIVER);
+        if (is_string($sSelected) && $sSelected !== '') {
+            if ($oToken->getData(static::TOKEN_DATA_KEY_IS_SETUP)) {
+                foreach ($this->getSetupDrivers($oUser) as $oDriver) {
+                    if ($oDriver->getSlug() === $sSelected) {
+                        return $oDriver;
+                    }
+                }
+            }
+
+            foreach ($this->getAuthenticationMethods($oUser) as $oDriver) {
+                if ($oDriver->getSlug() === $sSelected) {
+                    return $oDriver;
+                }
+            }
+        }
+
+        $oDefault = $this->getDefaultUserMethod($oUser);
+        if ($oDefault) {
+            try {
+                $oDriver = $this->getDriverBySlug((string) $oDefault->driver);
+                foreach ($this->getAuthenticationMethods($oUser) as $oEnabled) {
+                    if ($oEnabled->getSlug() === $oDriver->getSlug()) {
+                        $oToken->setData((object) [
+                            static::TOKEN_DATA_KEY_DRIVER => $oDriver->getSlug(),
+                        ]);
+                        return $oDriver;
+                    }
+                }
+            } catch (MFA\Exception\MfaException $e) {
+                $this->oLogger->info('Default MFA driver is not enabled: ' . $e->getMessage());
+            }
+        }
+
+        $aMethods = $this->getAuthenticationMethods($oUser);
+        if (empty($aMethods)) {
+            return null;
+        }
+
+        $oDriver = reset($aMethods);
+        $oToken->setData((object) [
+            static::TOKEN_DATA_KEY_DRIVER => $oDriver->getSlug(),
+        ]);
+
+        return $oDriver;
+    }
+
+    // --------------------------------------------------------------------------
+
+    /**
+     * @throws FactoryException
+     * @throws ModelException
+     */
+    public function enrollMethod(User $oUser, string $sDriver, stdClass $oData, bool $bMakeDefault = false): MFA\Resource\UserMethod
+    {
+        /** @var MFA\Model\UserMethod $oModel */
+        $oModel     = Factory::model('UserMethod', Constants::MODULE_SLUG);
+        $aExisting  = $this->getUserMethods($oUser);
+        $bIsDefault = $bMakeDefault || empty($aExisting);
+
+        $oExisting = $this->getUserMethod($oUser, $sDriver);
+        if ($oExisting) {
+            $oExisting->setDecodedData($oData);
+            if ($bIsDefault) {
+                $oModel->setDefault((int) $oUser->id, $sDriver);
+            }
+            /** @var MFA\Resource\UserMethod $oUpdated */
+            $oUpdated = $oModel->getById($oExisting->id);
+            return $oUpdated;
+        }
+
+        /** @var Encrypt $oEncrypt */
+        $oEncrypt = Factory::service('Encrypt');
+
+        /** @var MFA\Resource\UserMethod $oMethod */
+        $oMethod = $oModel->create([
+            'user_id'    => $oUser->id,
+            'driver'     => $sDriver,
+            'is_default' => $bIsDefault ? 1 : 0,
+            'data'       => $oEncrypt::encode(json_encode($oData) ?: '{}'),
+        ], true);
+
+        if ($bIsDefault) {
+            $oModel->setDefault((int) $oUser->id, $sDriver);
+        }
+
+        $this->oLogger->info(sprintf(
+            'Enrolled MFA method %s for user %s',
+            $sDriver,
+            $oUser->id
+        ));
+
+        return $oMethod;
+    }
+
+    // --------------------------------------------------------------------------
+
+    /**
+     * @throws FactoryException
+     * @throws ModelException
+     */
+    public function setDefaultMethod(User $oUser, string $sDriver): void
+    {
+        if (!$this->getUserMethod($oUser, $sDriver)) {
+            throw new MFA\Exception\MfaException('That method is not enrolled.');
+        }
+
+        /** @var MFA\Model\UserMethod $oModel */
+        $oModel = Factory::model('UserMethod', Constants::MODULE_SLUG);
+        $oModel->setDefault((int) $oUser->id, $sDriver);
+    }
+
+    // --------------------------------------------------------------------------
+
+    /**
+     * @throws FactoryException
+     * @throws ModelException
+     * @throws NailsException
+     */
+    public function removeMethod(User $oUser, string $sDriver, bool $bAllowLastRequired = false): void
+    {
+        $oMethod = $this->getUserMethod($oUser, $sDriver);
+        if (!$oMethod) {
+            throw new MFA\Exception\MfaException('That method is not enrolled.');
+        }
+
+        if (!$bAllowLastRequired && !$this->userCanRemoveMethod($oUser, $sDriver)) {
+            throw new MFA\Exception\MfaException(
+                'You cannot remove your last verification method while MFA is required for your account.'
+            );
+        }
+
+        $oDriver = $this->getDriverBySlug($sDriver);
+        $oDriver->reset($oUser, $oMethod);
+
+        /** @var MFA\Model\UserMethod $oModel */
+        $oModel = Factory::model('UserMethod', Constants::MODULE_SLUG);
+        $oModel->delete($oMethod->id);
+
+        $aRemaining = $this->getUserMethods($oUser);
+        if ($oMethod->is_default && !empty($aRemaining)) {
+            $oModel->setDefault((int) $oUser->id, (string) $aRemaining[0]->driver);
+        }
+
+        $this->oLogger->info(sprintf(
+            'Removed MFA method %s for user %s',
+            $sDriver,
+            $oUser->id
+        ));
+    }
+
+    // --------------------------------------------------------------------------
+
+    public function setPendingSetup(Token $oToken, string $sDriver, stdClass $oPending): void
+    {
+        /** @var Encrypt $oEncrypt */
+        $oEncrypt = Factory::service('Encrypt');
+
+        $oToken->setData((object) [
+            static::TOKEN_DATA_KEY_DRIVER        => $sDriver,
+            static::TOKEN_DATA_KEY_PENDING_SETUP => $oEncrypt::encode(json_encode($oPending) ?: '{}'),
+        ]);
+    }
+
+    // --------------------------------------------------------------------------
+
+    public function getPendingSetup(Token $oToken): ?stdClass
+    {
+        $sCipher = $oToken->getData(static::TOKEN_DATA_KEY_PENDING_SETUP);
+        if (empty($sCipher) || !is_string($sCipher)) {
+            return null;
+        }
+
+        $sPending = $this->decryptUntrustedValue($sCipher, 'the pending MFA setup payload');
+
+        if ($sPending === null) {
+            //  The user restarts setup rather than being shown an error
+            return null;
+        }
+
+        return (object) json_decode($sPending, false);
+    }
+
+    // --------------------------------------------------------------------------
+
+    public function clearPendingSetup(Token $oToken): void
+    {
+        $oToken->setData((object) [
+            static::TOKEN_DATA_KEY_PENDING_SETUP => null,
+        ]);
+    }
+
+    // --------------------------------------------------------------------------
+
+    /**
+     * @throws FactoryException
+     */
+    public function completeChallenge(Token $oToken, bool $bRememberDevice): string
+    {
+        /** @var MFA\Model\Token $oTokenModel */
+        $oTokenModel = Factory::model('Token', Constants::MODULE_SLUG);
+        /** @var Auth\Service\Authentication $oAuthenticationService */
+        $oAuthenticationService = Factory::service('Authentication', Auth\Constants::MODULE_SLUG);
+        /** @var Auth\Model\User $oUserModel */
+        $oUserModel = Factory::model('User', Auth\Constants::MODULE_SLUG);
+
+        $this->setIsPrivileged($oToken->user(), $bRememberDevice);
+        if ($oToken->id) {
+            $oTokenModel->delete($oToken->id);
+        }
+        $this->clearTokenCookie();
+        $oAuthenticationService->login($oToken->user());
+
+        if ($oToken->getData(static::TOKEN_DATA_KEY_IS_REMEMBERED)) {
+            $oUserModel->setRememberCookie(
+                $oToken->user()->id,
+                $oToken->user()->password,
+                $oToken->user()->email
+            );
+        }
+
+        return $oToken->getData(static::TOKEN_DATA_KEY_RETURN_TO) ?: siteUrl();
+    }
+
+    // --------------------------------------------------------------------------
+
+    /**
      * @throws FactoryException
      */
     public function isPrivileged(): bool
     {
         /** @var Cookie $oCookie */
         $oCookie = Factory::service('Cookie');
-        /** @var Encrypt $oEncrypt */
-        $oEncrypt = Factory::service('Encrypt');
 
         $this->oLogger->info(sprintf(
             'Checking if active user is privileged; active user %s',
@@ -442,9 +1037,19 @@ class MultiFactorAuth
             return false;
         }
 
-        $sStoredHash = $oEncrypt::decode($oStoredHashEncrypted->value);
+        $sStoredHash = $this->decryptUntrustedValue(
+            (string) $oStoredHashEncrypted->value,
+            sprintf('the "%s" cookie', static::MFA_COOKIE_IS_PRIVILEGED_KEY)
+        );
 
-        $bResult = isLoggedIn() && $sActiveUserHash === $sStoredHash;
+        if ($sStoredHash === null) {
+            //  Discard the unusable cookie so the user is challenged rather than
+            //  presented with the same error on every subsequent request
+            $this->clearIsPrivilegedCookie();
+            return false;
+        }
+
+        $bResult = isLoggedIn() && hash_equals($sActiveUserHash, $sStoredHash);
 
         $this->oLogger->info('User is privileged: ' . json_encode($bResult));
 
@@ -479,12 +1084,45 @@ class MultiFactorAuth
                 $sKey,
                 $oEncrypt::encode($sValue),
                 $bRemember
-                    ? static::MFA_COOKIE_IS_PRIVILEGED_TTL
+                    ? $this->getTrustedDeviceTtl()
                     : null,
-                '/'
+                '/',
+                '',
+                true,
+                true,
+                'Lax'
             );
 
         return $this;
+    }
+
+    // --------------------------------------------------------------------------
+
+    /**
+     * How long a device stays trusted, in seconds; override with the
+     * MFA_TRUSTED_DEVICE_TTL config property.
+     */
+    public function getTrustedDeviceTtl(): int
+    {
+        $iTtl = (int) Config::get(
+            'MFA_TRUSTED_DEVICE_TTL',
+            static::MFA_COOKIE_IS_PRIVILEGED_TTL
+        );
+
+        return $iTtl > 0
+            ? $iTtl
+            : static::MFA_COOKIE_IS_PRIVILEGED_TTL;
+    }
+
+    // --------------------------------------------------------------------------
+
+    /**
+     * Whether a trusted device stays trusted after the user signs out; override
+     * with the MFA_TRUST_SURVIVES_LOGOUT config property.
+     */
+    public function trustSurvivesLogout(): bool
+    {
+        return (bool) Config::get('MFA_TRUST_SURVIVES_LOGOUT', false);
     }
 
     // --------------------------------------------------------------------------
