@@ -33,6 +33,12 @@ class Mfa extends Controller\Base
     {
         parent::__construct();
         $this->oLogger = Factory::service('Logger', Constants::MODULE_SLUG);
+
+        /** @var Service\Output $oOutput */
+        $oOutput = Factory::service('Output');
+        $oOutput
+            ->setHeader('Referrer-Policy: no-referrer')
+            ->setHeader('Cache-Control: no-store');
     }
 
     // --------------------------------------------------------------------------
@@ -49,8 +55,6 @@ class Mfa extends Controller\Base
      */
     public function index()
     {
-        /** @var Service\Uri $oUri */
-        $oUri = Factory::service('Uri');
         /** @var Service\Input $oInput */
         $oInput = Factory::service('Input');
         /** @var Service\UserFeedback $oUserFeedback */
@@ -72,12 +76,7 @@ class Mfa extends Controller\Base
                 throw new Exception\TokenException('User is already logged in');
             }
 
-            $oToken = $oMfaService->getToken(
-                (string) $oUri->segment(
-                    $oMfaService::MFA_URL_TOKEN_SEGMENT
-                ),
-                $oInput::ipAddress()
-            );
+            $oToken = $oMfaService->getTokenFromCookie();
 
             $oDriver = $this->selectDriver(
                 $oMfaService->getAuthenticationMethods(
@@ -91,9 +90,13 @@ class Mfa extends Controller\Base
 
                 try {
 
+                    //  Claim the attempt before comparing the code so concurrent
+                    //  requests cannot all pass validation before being counted.
+                    $oMfaService->registerFailedAttempt($oToken);
                     $oDriver->validate($oToken, $oInput::post('code'));
                     $oMfaService->setIsPrivileged($oToken->user(), (bool) $oInput::post('remember'));
                     $oTokenModel->delete($oToken->id);
+                    $oMfaService->clearTokenCookie();
                     $oAuthenticationService->login($oToken->user());
 
                     if ($oToken->getData($oMfaService::TOKEN_DATA_KEY_IS_REMEMBERED)) {
@@ -130,6 +133,7 @@ class Mfa extends Controller\Base
             } elseif ($oInput::post('action') === 'restart') {
                 $this->log('User is restarting authentication');
                 $oTokenModel->delete($oToken->id);
+                $oMfaService->clearTokenCookie();
                 $oMfaService->authenticate(
                     $oToken->user(),
                     $oToken->getData($oMfaService::TOKEN_DATA_KEY_IS_REMEMBERED),
@@ -144,18 +148,35 @@ class Mfa extends Controller\Base
             }
 
         } catch (Exception\TokenException\IsExpiredException $e) {
-            //  Generate a new token to stay in the loop
             $this->log(sprintf(
                 'Caught exception: [%s] %s',
                 $e::class,
                 $e->getMessage()
             ));
+            $oTokenModel->delete($e->getToken()->id);
+            $oMfaService->clearTokenCookie();
             $oUserFeedback->info('Your session expired, please try again.');
-            $oMfaService->authenticate(
-                $e->getToken()->user(),
-                $e->getToken()->getData($oMfaService::TOKEN_DATA_KEY_IS_REMEMBERED),
-                true
+            redirect(loginUrl(null));
+
+        } catch (DecodeException|Exception\TokenException $e) {
+            $this->log(sprintf(
+                'Caught exception: [%s] %s',
+                $e::class,
+                $e->getMessage()
+            ));
+
+            if ($e instanceof Exception\TokenException && $e->getToken()) {
+                $oTokenModel->delete($e->getToken()->id);
+            }
+
+            $oMfaService->clearTokenCookie();
+            $oUserFeedback->error(
+                $e instanceof Exception\TokenException\MissingCookieException ||
+                $e instanceof Exception\TokenException\TooManyAttemptsException
+                    ? $e->getMessage()
+                    : 'We could not continue your sign-in. Please sign in and try again.'
             );
+            redirect(loginUrl(null));
 
         } catch (Throwable $e) {
             $this->log(sprintf(

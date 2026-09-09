@@ -19,7 +19,9 @@ class Logger
             /** @var \DateTime $oNow */
             $oNow = \Nails\Factory::factory('DateTime');
 
-            $this->oLogger = \Nails\Factory::factory('Logger');
+            /** @var Factory\Logger $oLogger */
+            $oLogger = \Nails\Factory::factory('Logger');
+            $this->oLogger = $oLogger;
             $this->oLogger
                 ->setFile('mfa-' . $oNow->format('Y-m-d') . '.php')
                 //  Set a uniqid() to more easily filter logs by session

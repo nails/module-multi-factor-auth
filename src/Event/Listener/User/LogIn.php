@@ -47,10 +47,7 @@ class LogIn extends Subscription
 
         $oService->authenticate(
             $oUserModel->activeUser(),
-            //  Backwards compatability
-            is_callable([$oUserModel, 'isRemembered'])
-                ? $oUserModel->isRemembered()
-                : $oUserModel->bIsRemembered()
+            $oUserModel->isRemembered()
         );
     }
 }
