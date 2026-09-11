@@ -8,6 +8,9 @@ use Nails\MFA\Resource\Token;
 use Nails\MFA\Resource\UserMethod;
 use stdClass;
 
+/**
+ * @method string getSlug() Provided by Nails\Common\Driver\Base on every concrete driver
+ */
 interface Driver
 {
     public function getLabel(): string;

@@ -6,12 +6,14 @@
  * @var \Nails\MFA\Resource\UserMethod[] $aMethods
  * @var \Nails\MFA\Interfaces\Authentication\Driver[] $aSetupDrivers
  * @var object|null $oPending
+ * @var \Nails\MFA\Interfaces\Authentication\Driver|null $oPendingDriver
  * @var array<string, string> $aDriverLabels
  * @var array<string, bool> $aCanRemove
  */
 
 use Nails\Common\Service\View;
 use Nails\Factory;
+use Nails\MFA\Interfaces\Authentication\Driver\Interactive;
 use Nails\MFA\Model\GroupPolicy;
 
 /** @var View $oView */
@@ -38,6 +40,8 @@ $oView = Factory::service('View');
 
         $sPendingLabel = $aDriverLabels[$oPending->driver] ?? $oPending->driver;
         $oPendingData  = (object) $oPending->pending;
+        $bInteractive  = isset($oPendingDriver) && $oPendingDriver instanceof Interactive;
+        $bHideCode     = $bInteractive && $oPendingDriver->hidesCodeInput();
 
         ?>
         <div class="panel panel--primary">
@@ -48,30 +52,59 @@ $oView = Factory::service('View');
             </div>
             <?=form_open(null, 'class="form mb-0"')?>
             <div class="panel__body">
-                <?php if (!empty($oPendingData->qr_svg)) { ?>
-                    <p class="text-center">
-                        <?=$oPendingData->qr_svg?>
-                    </p>
-                <?php } ?>
-                <?php if (!empty($oPendingData->secret)) { ?>
-                    <p class="text-center">
-                        <code><?=htmlspecialchars((string) $oPendingData->secret)?></code>
-                        <small class="form__help">Enter this secret manually if you cannot scan the code</small>
-                    </p>
-                <?php } ?>
-                <div class="form__group">
-                    <label class="form__label" for="input-code">Code</label>
-                    <?=form_input('code', '', 'id="input-code" autocomplete="one-time-code" inputmode="numeric" class="form__control"')?>
-                    <small class="form__help">
-                        Enter the code from <?=htmlspecialchars((string) $sPendingLabel)?> to confirm setup.
-                    </small>
-                </div>
+                <?php
+
+                if ($bInteractive) {
+                    //  See mfa/views/form.php: the driver JS locates this via
+                    //  [name="action"] and sets it before a programmatic
+                    //  form.submit(), which carries no button's name/value on its own.
+                    ?>
+                    <input type="hidden" name="action" value="">
+                    <?php
+                    echo $oPendingDriver->getSetupMarkup($oUser, $oPendingData);
+                } else {
+                    if (!empty($oPendingData->qr_svg)) {
+                        ?>
+                        <p class="text-center">
+                            <?=$oPendingData->qr_svg?>
+                        </p>
+                        <?php
+                    }
+                    if (!empty($oPendingData->secret)) {
+                        ?>
+                        <p class="text-center">
+                            <code><?=htmlspecialchars((string) $oPendingData->secret)?></code>
+                            <small class="form__help">Enter this secret manually if you cannot scan the code</small>
+                        </p>
+                        <?php
+                    }
+                }
+
+                if ($bHideCode) {
+                    ?>
+                    <input type="hidden" name="code" id="input-code" value="">
+                    <?php
+                } else {
+                    ?>
+                    <div class="form__group">
+                        <label class="form__label" for="input-code">Code</label>
+                        <?=form_input('code', '', 'id="input-code" autocomplete="one-time-code" inputmode="numeric" class="form__control"')?>
+                        <small class="form__help">
+                            Enter the code from <?=htmlspecialchars((string) $sPendingLabel)?> to confirm setup.
+                        </small>
+                    </div>
+                    <?php
+                }
+
+                ?>
             </div>
             <div class="panel__footer">
                 <div class="form__actions">
-                    <button type="submit" name="action" value="setup_confirm" class="btn btn--primary">
-                        Confirm
-                    </button>
+                    <?php if (!$bHideCode) { ?>
+                        <button type="submit" name="action" value="setup_confirm" class="btn btn--primary">
+                            Confirm
+                        </button>
+                    <?php } ?>
                     <button type="submit" name="action" value="setup_cancel" class="btn btn--secondary">
                         Cancel
                     </button>
