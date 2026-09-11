@@ -2,7 +2,7 @@
 
 use Nails\Common\Service\View;
 use Nails\Factory;
-use Nails\MFA\Interfaces\Authentication\Driver\Interactive;
+use Nails\MFA\Interfaces\Authentication\Driver\FormFragment;
 
 /**
  * @var \Nails\MFA\Interfaces\Authentication\Driver $oDriver
@@ -12,8 +12,8 @@ use Nails\MFA\Interfaces\Authentication\Driver\Interactive;
  * @var string                                      $sTrustedForLabel
  */
 
-$bInteractive = $oDriver instanceof Interactive;
-$bHideCode    = $bInteractive && $oDriver->hidesCodeInput();
+$bFormFragment = $oDriver instanceof FormFragment;
+$bHideCode     = $bFormFragment && $oDriver->hidesCodeInput();
 
 /** @var View $oView */
 $oView = Factory::service('View');
@@ -32,7 +32,7 @@ $oView = Factory::service('View');
             echo form_open(null, 'id="mfa-form" class="form"');
             $oView->load('auth/_components/alerts');
 
-            if ($bInteractive) {
+            if ($bFormFragment) {
 
                 //  See form.php: the driver JS locates this via [name="action"] and
                 //  sets it before a programmatic form.submit(), which carries no

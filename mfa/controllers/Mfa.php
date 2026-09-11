@@ -386,7 +386,7 @@ class Mfa extends Controller\Base
         $this->data['aCanRemove']    = [];
         $this->data['aDriverLabels'] = [];
 
-        //  Resolve the driver behind an in-progress setup so an Interactive
+        //  Resolve the driver behind an in-progress setup so a FormFragment
         //  driver can render its own confirm panel (and have its assets loaded).
         $oPendingDriver = null;
         if (is_object($oPending) && !empty($oPending->driver)) {
@@ -747,17 +747,17 @@ class Mfa extends Controller\Base
     // --------------------------------------------------------------------------
 
     /**
-     * Loads an interactive driver's front-end assets.
+     * Loads a FormFragment driver's front-end assets.
      *
      * Called immediately after loadStyles() so it runs after that method's
      * clear(). Unlike loadStyles() it fires even when the app has overridden the
-     * view: an Interactive driver's assets are functional, not cosmetic.
+     * view: a FormFragment driver's assets are functional, not cosmetic.
      *
      * @throws FactoryException
      */
     protected function loadDriverAssets(?Interfaces\Authentication\Driver $oDriver): void
     {
-        if ($oDriver instanceof Interfaces\Authentication\Driver\Interactive) {
+        if ($oDriver instanceof Interfaces\Authentication\Driver\FormFragment) {
             $oDriver->loadAssets();
         }
     }
