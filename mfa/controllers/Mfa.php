@@ -167,7 +167,23 @@ class Mfa extends Controller\Base
 
             } elseif ($oInput::post('action') === 'setup_cancel') {
 
-                $this->cancelSetup($oToken, $oMfaService, $oTokenModel, $oUserFeedback);
+                $this->cancelChallenge(
+                    $oToken,
+                    $oMfaService,
+                    $oTokenModel,
+                    $oUserFeedback,
+                    'Two-factor authentication setup was cancelled. Please sign in to try again.'
+                );
+
+            } elseif ($oInput::post('action') === 'cancel') {
+
+                $this->cancelChallenge(
+                    $oToken,
+                    $oMfaService,
+                    $oTokenModel,
+                    $oUserFeedback,
+                    'Sign in was cancelled. Please try again.'
+                );
 
             } elseif ($oInput::post('action') === 'switch') {
 
@@ -537,20 +553,25 @@ class Mfa extends Controller\Base
 
     // --------------------------------------------------------------------------
 
-    private function cancelSetup(
+    /**
+     * Abandons the challenge: the token is spent so a cancelled attempt cannot be
+     * resumed, and the user is returned to the login page to start again.
+     */
+    private function cancelChallenge(
         Resource\Token $oToken,
         MultiFactorAuth $oMfaService,
         Model\Token $oTokenModel,
-        Service\UserFeedback $oUserFeedback
+        Service\UserFeedback $oUserFeedback,
+        string $sMessage
     ): void {
-        $this->log('User cancelled MFA setup');
+        $this->log('User cancelled the MFA challenge');
 
         if ($oToken->id) {
             $oTokenModel->delete($oToken->id);
         }
 
         $oMfaService->clearTokenCookie();
-        $oUserFeedback->info('Two-factor authentication setup was cancelled. Please sign in to try again.');
+        $oUserFeedback->info($sMessage);
         redirect(loginUrl(null));
     }
 
