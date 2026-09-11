@@ -370,6 +370,18 @@ class Mfa extends Controller\Base
         $this->data['aCanRemove']    = [];
         $this->data['aDriverLabels'] = [];
 
+        //  Resolve the driver behind an in-progress setup so an Interactive
+        //  driver can render its own confirm panel (and have its assets loaded).
+        $oPendingDriver = null;
+        if (is_object($oPending) && !empty($oPending->driver)) {
+            try {
+                $oPendingDriver = $oMfaService->getDriverBySlug((string) $oPending->driver);
+            } catch (NailsException $e) {
+                $oPendingDriver = null;
+            }
+        }
+        $this->data['oPendingDriver'] = $oPendingDriver;
+
         foreach ($this->data['aMethods'] as $oMethod) {
             $sDriver = (string) $oMethod->driver;
 
@@ -387,6 +399,7 @@ class Mfa extends Controller\Base
         $this->oMetaData->setTitles(['Security', 'Two-factor authentication']);
 
         $this->loadStyles(Config::get('NAILS_APP_PATH') . 'application/modules/mfa/views/manage.php');
+        $this->loadDriverAssets($oPendingDriver);
 
         $oView
             ->load([
@@ -584,6 +597,7 @@ class Mfa extends Controller\Base
         MultiFactorAuth $oMfaService
     ): void {
         $this->loadStyles(Config::get('NAILS_APP_PATH') . 'application/modules/mfa/views/form.php');
+        $this->loadDriverAssets($oDriver);
 
         $aOtherMethods = [];
         foreach ($oMfaService->getAuthenticationMethods($oToken->user()) as $oOther) {
@@ -665,6 +679,7 @@ class Mfa extends Controller\Base
         MultiFactorAuth $oMfaService
     ): void {
         $this->loadStyles(Config::get('NAILS_APP_PATH') . 'application/modules/mfa/views/setup_confirm.php');
+        $this->loadDriverAssets($oDriver);
 
         /** @var Service\View $oView */
         $oView = Factory::service('View');
@@ -699,6 +714,24 @@ class Mfa extends Controller\Base
                 ->load('nails.min.css', \Nails\Common\Constants::MODULE_SLUG)
                 //  Sizes the .nails-auth wrapper these views share with the auth pages
                 ->load('styles.min.css', Auth\Constants::MODULE_SLUG);
+        }
+    }
+
+    // --------------------------------------------------------------------------
+
+    /**
+     * Loads an interactive driver's front-end assets.
+     *
+     * Called immediately after loadStyles() so it runs after that method's
+     * clear(). Unlike loadStyles() it fires even when the app has overridden the
+     * view: an Interactive driver's assets are functional, not cosmetic.
+     *
+     * @throws FactoryException
+     */
+    protected function loadDriverAssets(?Interfaces\Authentication\Driver $oDriver): void
+    {
+        if ($oDriver instanceof Interfaces\Authentication\Driver\Interactive) {
+            $oDriver->loadAssets();
         }
     }
 }

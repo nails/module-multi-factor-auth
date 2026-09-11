@@ -88,7 +88,7 @@ class GroupPolicy extends Base
         $oPolicy = $this->getByGroupId($iGroupId);
 
         if ($oPolicy) {
-            $this->update($oPolicy->id, ['mode' => $sMode]);
+            $this->update((int) $oPolicy->id, ['mode' => $sMode]);
             /** @var Resource\GroupPolicy $oUpdated */
             $oUpdated = $this->getById($oPolicy->id);
             return $oUpdated;

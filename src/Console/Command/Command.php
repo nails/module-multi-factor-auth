@@ -279,6 +279,7 @@ abstract class Command extends Base
         $aChoices = [];
 
         foreach ($oModel->getAll() as $oGroup) {
+            /** @var Auth\Resource\User\Group $oGroup */
             $sKey            = trim((string) $oGroup->slug) ?: (string) $oGroup->id;
             $aChoices[$sKey] = sprintf(
                 '%s (%s)',
@@ -305,12 +306,10 @@ abstract class Command extends Base
         /** @var Auth\Model\User $oModel */
         $oModel = Factory::model('User', Auth\Constants::MODULE_SLUG);
 
-        if (is_numeric($sIdentifier)) {
-            $oUser = $oModel->getById((int) $sIdentifier);
-        } else {
-            $oUser = $oModel->getByEmail($sIdentifier)
-                ?: $oModel->getByUsername($sIdentifier);
-        }
+        /** @var User|null $oUser */
+        $oUser = is_numeric($sIdentifier)
+            ? $oModel->getById((int) $sIdentifier)
+            : ($oModel->getByEmail($sIdentifier) ?: $oModel->getByUsername($sIdentifier));
 
         if (!$oUser) {
             throw new NailsException(sprintf(
@@ -336,6 +335,7 @@ abstract class Command extends Base
 
         /** @var Auth\Model\User\Group $oModel */
         $oModel = Factory::model('UserGroup', Auth\Constants::MODULE_SLUG);
+        /** @var Auth\Resource\User\Group|null $oGroup */
         $oGroup = $oModel->getByIdOrSlug($sIdentifier);
 
         if (!$oGroup) {
