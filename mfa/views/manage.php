@@ -13,7 +13,7 @@
 
 use Nails\Common\Service\View;
 use Nails\Factory;
-use Nails\MFA\Interfaces\Authentication\Driver\Interactive;
+use Nails\MFA\Interfaces\Authentication\Driver\FormFragment;
 use Nails\MFA\Model\GroupPolicy;
 
 /** @var View $oView */
@@ -40,8 +40,8 @@ $oView = Factory::service('View');
 
         $sPendingLabel = $aDriverLabels[$oPending->driver] ?? $oPending->driver;
         $oPendingData  = (object) $oPending->pending;
-        $bInteractive  = isset($oPendingDriver) && $oPendingDriver instanceof Interactive;
-        $bHideCode     = $bInteractive && $oPendingDriver->hidesCodeInput();
+        $bFormFragment = isset($oPendingDriver) && $oPendingDriver instanceof FormFragment;
+        $bHideCode     = $bFormFragment && $oPendingDriver->hidesCodeInput();
 
         ?>
         <div class="panel panel--primary">
@@ -54,7 +54,7 @@ $oView = Factory::service('View');
             <div class="panel__body">
                 <?php
 
-                if ($bInteractive) {
+                if ($bFormFragment) {
                     //  See mfa/views/form.php: the driver JS locates this via
                     //  [name="action"] and sets it before a programmatic
                     //  form.submit(), which carries no button's name/value on its own.

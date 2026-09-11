@@ -8,13 +8,16 @@ use stdClass;
 
 /**
  * Opt-in companion to {@see \Nails\MFA\Interfaces\Authentication\Driver} for
- * drivers that drive the challenge/setup screens themselves (e.g. WebAuthn),
- * rather than asking the user to type a numeric code.
+ * drivers that inject their own markup into the challenge/setup forms (e.g.
+ * WebAuthn), rather than fitting the module's stock numeric-code field.
+ *
+ * Every driver has a UI. This interface is only for drivers that emit a form
+ * fragment instead of letting the module compose the form from data.
  *
  * The MFA module only ever consults this via an `instanceof` check, so a driver
  * that does not implement it keeps working exactly as before.
  */
-interface Interactive
+interface FormFragment
 {
     /**
      * Markup rendered inside the verify <form>, in place of (or alongside) the

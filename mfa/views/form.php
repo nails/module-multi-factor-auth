@@ -2,7 +2,7 @@
 
 use Nails\Common\Service\View;
 use Nails\Factory;
-use Nails\MFA\Interfaces\Authentication\Driver\Interactive;
+use Nails\MFA\Interfaces\Authentication\Driver\FormFragment;
 
 /**
  * @var \Nails\MFA\Interfaces\Authentication\Driver $oDriver
@@ -13,8 +13,8 @@ use Nails\MFA\Interfaces\Authentication\Driver\Interactive;
  * @var string                                      $sTrustedForLabel
  */
 
-$bInteractive  = $oDriver instanceof Interactive;
-$bHideCode     = $bInteractive && $oDriver->hidesCodeInput();
+$bFormFragment = $oDriver instanceof FormFragment;
+$bHideCode     = $bFormFragment && $oDriver->hidesCodeInput();
 
 /** @var View $oView */
 $oView = Factory::service('View');
@@ -33,7 +33,7 @@ $oView = Factory::service('View');
             echo form_open(null, 'id="mfa-form" class="form"');
             $oView->load('auth/_components/alerts');
 
-            if ($bInteractive) {
+            if ($bFormFragment) {
                 /**
                  * The shared driver JS finds this via `form.querySelector('[name="action"]')`
                  * and sets it before calling form.submit(). A programmatic submit() never
