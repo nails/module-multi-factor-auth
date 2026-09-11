@@ -74,6 +74,9 @@ class Mfa implements Tab
 
     // --------------------------------------------------------------------------
 
+    /**
+     * @return array<string, mixed>
+     */
     public function getValidationRules(User $oUser): array
     {
         return [];
@@ -81,6 +84,11 @@ class Mfa implements Tab
 
     // --------------------------------------------------------------------------
 
+    /**
+     * @param array<string, mixed> $aPost
+     *
+     * @return array<string, mixed>
+     */
     public function getPostData(User $oUser, array $aPost): array
     {
         /** @var MultiFactorAuth $oMfa */

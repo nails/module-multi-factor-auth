@@ -65,8 +65,8 @@ class Status extends Command
             ->setRows(array_map(
                 static fn($oMethod) => [
                     $oMethod->is_default ? 'yes' : '',
-                    $aLabels[$oMethod->driver] ?? 'Unavailable driver',
-                    $oMethod->driver,
+                    $aLabels[(string) $oMethod->driver] ?? 'Unavailable driver',
+                    (string) $oMethod->driver,
                     (string) $oMethod->created,
                 ],
                 $aMethods

@@ -1,3 +1,8 @@
+includes:
+    #  Only the Nails\Common\Helper\Model\Where / Sort constructor complaints,
+    #  which originate in a nails/common typing bug and are out of scope here.
+    - phpstan-baseline.neon
+
 parameters:
     level: 8
     paths:
@@ -7,4 +12,7 @@ parameters:
         - constants.php
     scanFiles:
         - ../vendor/nails/common/helpers/url.php
+        - ../vendor/nails/common/helpers/app_setting.php
         - ../vendor/nails/module-auth/helpers/user.php
+        - ../vendor/nails/module-auth/helpers/authUrls.php
+        - ../vendor/nails/module-admin/helpers/permission.php
