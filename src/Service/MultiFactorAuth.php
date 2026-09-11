@@ -37,7 +37,8 @@ class MultiFactorAuth
     const int    TOKEN_REUSE_MIN_TTL          = 30;
     const int    MAX_VERIFICATION_ATTEMPTS    = 5;
     const int    MAX_RESENDS_PER_TOKEN        = 3;
-    const int    MAX_TOKEN_MINTS_PER_HOUR     = 5;
+    const int    MAX_TOKEN_MINTS_PER_HOUR     = 10;
+    const int    LOGIN_SIGNAL_MAX_AGE         = 120;
     const string MFA_URL                      = 'mfa';
     const string MFA_COOKIE_TOKEN_KEY         = 'mfa-token';
     const string MFA_COOKIE_IS_PRIVILEGED_KEY = 'mfa-is-privileged';
@@ -90,16 +91,23 @@ class MultiFactorAuth
             /** @var Auth\Service\Authentication $oAuth */
             $oAuth = Factory::service('Authentication', Auth\Constants::MODULE_SLUG);
 
-            if (isLoggedIn()) {
-                $this->oLogger->info('User is currently logged in, logging out');
-                $oAuth->logout();
-            }
-
+            /**
+             * Minted before logout(), deliberately: generateToken() can throw (e.g.
+             * TokenMintLimitException), and logout() destroys the session. Doing it
+             * the other way round meant a failure here left nothing for the caller's
+             * catch block to show the user — the flash message it sets afterwards
+             * was written into a session that had already been torn down.
+             */
             $oToken = $this->generateToken(
                 $oUser,
                 $bIsRemembered,
                 $oInput::ipAddress()
             );
+
+            if (isLoggedIn()) {
+                $this->oLogger->info('User is currently logged in, logging out');
+                $oAuth->logout();
+            }
 
             if (!$this->setTokenCookie($oToken)) {
                 /** @var MFA\Model\Token $oTokenModel */
@@ -137,10 +145,82 @@ class MultiFactorAuth
         $bResult = !$this->isAuthenticated()
             && !wasAdmin()
             && isLoggedIn()
-            && $this->userRequiresChallenge(activeUser());
+            && $this->userRequiresChallenge(activeUser())
+            && !$this->loginSatisfiesChallenge();
 
         $this->oLogger->info('Requires Authentication: ' . json_encode($bResult));
         return $bResult;
+    }
+
+    // --------------------------------------------------------------------------
+
+    /**
+     * Whether the way the current session signed in already stands in for the
+     * MFA challenge, so the user should not be challenged again.
+     *
+     * A user-verified passkey login is phishing-resistant and proves possession
+     * of a second factor, so it satisfies the challenge on its own. The skip is
+     * per-login only: setIsPrivileged() is deliberately not called, so a later
+     * password login on the same browser is still challenged.
+     *
+     * @throws FactoryException
+     */
+    public function loginSatisfiesChallenge(): bool
+    {
+        /** @var Auth\Service\Authentication $oAuth */
+        $oAuth = Factory::service('Authentication', Auth\Constants::MODULE_SLUG);
+
+        $bResult = static::loginSignalSatisfies(
+            $oAuth->getLoginMethod(),
+            (int) activeUser()->id,
+            time()
+        );
+
+        $this->oLogger->info('Login satisfies MFA challenge: ' . json_encode($bResult));
+
+        return $bResult;
+    }
+
+    // --------------------------------------------------------------------------
+
+    /**
+     * The pure predicate behind loginSatisfiesChallenge(): true only for a
+     * fresh, user-verified passkey login belonging to this same user.
+     *
+     * Kept static and free of DB/session/Factory access so it can be unit
+     * tested directly.
+     *
+     * @param stdClass|null $oSignal The login-method signal from Authentication::getLoginMethod()
+     * @param int           $iUserId The id of the user about to be challenged
+     * @param int           $iNow    The current unix timestamp
+     */
+    public static function loginSignalSatisfies(?stdClass $oSignal, int $iUserId, int $iNow): bool
+    {
+        if ($oSignal === null || $iUserId <= 0) {
+            return false;
+        }
+
+        $sMethod       = is_string($oSignal->method ?? null) ? $oSignal->method : null;
+        $iSignalUserId = (int) ($oSignal->user_id ?? 0);
+        $iAt           = (int) ($oSignal->at ?? 0);
+
+        if ($sMethod !== Auth\Service\Authentication::LOGIN_METHOD_PASSKEY) {
+            return false;
+        }
+
+        if (empty($oSignal->user_verified)) {
+            return false;
+        }
+
+        if ($iSignalUserId !== $iUserId) {
+            return false;
+        }
+
+        //  Reject a signal with no timestamp, one from the future (clock skew or
+        //  tampering), or one older than the freshness window.
+        return $iAt > 0
+            && $iNow >= $iAt
+            && ($iNow - $iAt) <= static::LOGIN_SIGNAL_MAX_AGE;
     }
 
     // --------------------------------------------------------------------------
@@ -336,7 +416,7 @@ class MultiFactorAuth
             $oDb->where('user_id', $oUser->id);
             $oDb->where('created >=', 'DATE_SUB(NOW(), INTERVAL 1 HOUR)', false);
 
-            if ($oDb->count_all_results($oTokenModel->getTableName()) >= static::MAX_TOKEN_MINTS_PER_HOUR) {
+            if ($oDb->count_all_results($oTokenModel->getTableName()) >= $this->getMaxTokenMintsPerHour()) {
                 throw new TokenMintLimitException(
                     'We could not complete your sign-in. Please wait and try again later.'
                 );
@@ -928,7 +1008,7 @@ class MultiFactorAuth
 
         /** @var MFA\Model\UserMethod $oModel */
         $oModel = Factory::model('UserMethod', Constants::MODULE_SLUG);
-        $oModel->delete($oMethod->id);
+        $oModel->delete((int) $oMethod->id);
 
         $aRemaining = $this->getUserMethods($oUser);
         if ($oMethod->is_default && !empty($aRemaining)) {
@@ -987,6 +1067,7 @@ class MultiFactorAuth
 
     /**
      * @throws FactoryException
+     * @throws MfaException
      */
     public function completeChallenge(Token $oToken, bool $bRememberDevice): string
     {
@@ -997,18 +1078,23 @@ class MultiFactorAuth
         /** @var Auth\Model\User $oUserModel */
         $oUserModel = Factory::model('User', Auth\Constants::MODULE_SLUG);
 
-        $this->setIsPrivileged($oToken->user(), $bRememberDevice);
+        $oUser = $oToken->user();
+        if ($oUser === null) {
+            throw new MfaException('We could not complete your sign-in. Please sign in and try again.');
+        }
+
+        $this->setIsPrivileged($oUser, $bRememberDevice);
         if ($oToken->id) {
-            $oTokenModel->delete($oToken->id);
+            $oTokenModel->delete((int) $oToken->id);
         }
         $this->clearTokenCookie();
-        $oAuthenticationService->login($oToken->user());
+        $oAuthenticationService->login($oUser);
 
         if ($oToken->getData(static::TOKEN_DATA_KEY_IS_REMEMBERED)) {
             $oUserModel->setRememberCookie(
-                $oToken->user()->id,
-                $oToken->user()->password,
-                $oToken->user()->email
+                $oUser->id,
+                $oUser->password,
+                $oUser->email
             );
         }
 
@@ -1094,6 +1180,33 @@ class MultiFactorAuth
             );
 
         return $this;
+    }
+
+    // --------------------------------------------------------------------------
+
+    /**
+     * How many MFA tokens a user may have minted in a rolling hour before sign-in
+     * is refused; override with the MFA_MAX_TOKEN_MINTS_PER_HOUR config property.
+     *
+     * A live token is reused rather than counted again (see generateToken()), so
+     * this only limits genuinely repeated attempts: the token expiring and being
+     * restarted, or the user abandoning and trying again. A ceremony-based driver
+     * — a passkey prompt the user can decline, switch devices for, or simply take
+     * longer over than typing a code — makes that more likely than the default of
+     * 5 comfortably allows for, hence the higher default; it is still far below
+     * anything that matters for guessing a code, which registerFailedAttempt()'s
+     * five-attempts-per-token cap already covers.
+     */
+    public function getMaxTokenMintsPerHour(): int
+    {
+        $iMax = (int) Config::get(
+            'MFA_MAX_TOKEN_MINTS_PER_HOUR',
+            static::MAX_TOKEN_MINTS_PER_HOUR
+        );
+
+        return $iMax > 0
+            ? $iMax
+            : static::MAX_TOKEN_MINTS_PER_HOUR;
     }
 
     // --------------------------------------------------------------------------
