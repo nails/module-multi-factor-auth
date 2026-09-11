@@ -49,19 +49,22 @@ class Config extends Command
         /** @var GroupPolicy $oPolicies */
         $oPolicies = Factory::model('GroupPolicy', Constants::MODULE_SLUG);
 
+        $aGroupRows = [];
+        foreach ($oGroups->getAll() as $oGroup) {
+            /** @var Auth\Resource\User\Group $oGroup */
+            $aGroupRows[] = [
+                (string) $oGroup->id,
+                (string) $oGroup->label,
+                (string) $oGroup->slug,
+                $oPolicies->getModeForGroup((int) $oGroup->id),
+            ];
+        }
+
         $oOutput->writeln('');
         $oOutput->writeln('<info>Group policies</info>');
         (new Table($oOutput))
             ->setHeaders(['ID', 'Group', 'Slug', 'Policy'])
-            ->setRows(array_map(
-                static fn($oGroup) => [
-                    $oGroup->id,
-                    $oGroup->label,
-                    $oGroup->slug,
-                    $oPolicies->getModeForGroup((int) $oGroup->id),
-                ],
-                $oGroups->getAll()
-            ))
+            ->setRows($aGroupRows)
             ->render();
 
         $oOutput->writeln('');

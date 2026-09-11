@@ -65,6 +65,9 @@ class Mfa implements Tab
 
     // --------------------------------------------------------------------------
 
+    /**
+     * @return array<string, mixed>
+     */
     public function getValidationRules(?Group $oGroup): array
     {
         return [
@@ -80,6 +83,11 @@ class Mfa implements Tab
 
     // --------------------------------------------------------------------------
 
+    /**
+     * @param array<string, mixed> $aPost
+     *
+     * @return array<string, mixed>
+     */
     public function getPostData(?Group $oGroup, array $aPost): array
     {
         return [];
@@ -87,6 +95,9 @@ class Mfa implements Tab
 
     // --------------------------------------------------------------------------
 
+    /**
+     * @param array<string, mixed> $aPost
+     */
     public function afterSave(Group $oGroup, array $aPost): void
     {
         $sMode = (string) ($aPost['mfa_group_policy'] ?? '');

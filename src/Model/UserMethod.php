@@ -36,9 +36,12 @@ class UserMethod extends Base
      */
     public function getByUserId(int $iUserId): array
     {
-        return $this->getAll([
+        /** @var Resource\UserMethod[] $aMethods */
+        $aMethods = $this->getAll([
             new Where('user_id', $iUserId),
         ]);
+
+        return $aMethods;
     }
 
     // --------------------------------------------------------------------------
