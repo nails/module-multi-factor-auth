@@ -631,12 +631,12 @@ class Mfa extends Controller\Base
         $oView = Factory::service('View');
         $oView
             ->setData([
-                'oDriver'         => $oDriver,
-                'oToken'          => $oToken,
-                'aOtherMethods'   => $aOtherMethods,
-                'bIsSetup'        => (bool) $oToken->getData($oMfaService::TOKEN_DATA_KEY_IS_SETUP),
-                'bCanGoBack'      => count($oMfaService->getSetupDrivers($oToken->user())) > 1,
-                'sTrustedForLabel' => $this->trustedForLabel($oMfaService),
+                'oDriver'           => $oDriver,
+                'oToken'            => $oToken,
+                'aOtherMethods'     => $aOtherMethods,
+                'bIsSetup'          => (bool) $oToken->getData($oMfaService::TOKEN_DATA_KEY_IS_SETUP),
+                'bCanChooseAnother' => count($oMfaService->getSetupDrivers($oToken->user())) > 1,
+                'sTrustedForLabel'  => $this->trustedForLabel($oMfaService),
             ])
             ->load([
                 'mfa/structure/header',
@@ -678,8 +678,12 @@ class Mfa extends Controller\Base
         $oView = Factory::service('View');
         $oView
             ->setData([
-                'oToken'   => $oToken,
-                'aDrivers' => $aDrivers,
+                'oToken'            => $oToken,
+                'aDrivers'          => $aDrivers,
+                //  The drivers are listed above; only cancelling is left to offer
+                'aOtherMethods'     => [],
+                'bCanChooseAnother' => false,
+                'bIsSetup'          => true,
             ])
             ->load([
                 'mfa/structure/header',
@@ -706,11 +710,13 @@ class Mfa extends Controller\Base
         $oView = Factory::service('View');
         $oView
             ->setData([
-                'oDriver'          => $oDriver,
-                'oToken'           => $oToken,
-                'oPending'         => $oMfaService->getPendingSetup($oToken),
-                'bCanGoBack'       => count($oMfaService->getSetupDrivers($oToken->user())) > 1,
-                'sTrustedForLabel' => $this->trustedForLabel($oMfaService),
+                'oDriver'           => $oDriver,
+                'oToken'            => $oToken,
+                'oPending'          => $oMfaService->getPendingSetup($oToken),
+                'aOtherMethods'     => [],
+                'bCanChooseAnother' => count($oMfaService->getSetupDrivers($oToken->user())) > 1,
+                'bIsSetup'          => true,
+                'sTrustedForLabel'  => $this->trustedForLabel($oMfaService),
             ])
             ->load([
                 'mfa/structure/header',

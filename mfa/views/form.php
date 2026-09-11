@@ -9,11 +9,9 @@ use Nails\MFA\Interfaces\Authentication\Driver\Interactive;
  * @var \Nails\MFA\Resource\Token                   $oToken
  * @var \Nails\MFA\Interfaces\Authentication\Driver[] $aOtherMethods
  * @var bool                                        $bIsSetup
- * @var bool                                        $bCanGoBack
+ * @var bool                                        $bCanChooseAnother
  * @var string                                      $sTrustedForLabel
  */
-
-$aOtherMethods = $aOtherMethods ?? [];
 
 $bInteractive  = $oDriver instanceof Interactive;
 $bHideCode     = $bInteractive && $oDriver->hidesCodeInput();
@@ -96,35 +94,11 @@ $oView = Factory::service('View');
                 }
 
                 ?>
-                <?php if ($bIsSetup && $bCanGoBack) { ?>
-                    <button type="submit" name="action" value="setup_back" class="btn btn--block btn--secondary">
-                        Choose another method
-                    </button>
-                <?php } ?>
             </div>
             <?=form_close()?>
             <?php
 
-            if (!empty($aOtherMethods)) {
-                ?>
-                <div class="form__actions form__actions--stacked">
-                    <?php
-
-                    foreach ($aOtherMethods as $oOther) {
-                        echo form_open(null, 'class="form"');
-                        ?>
-                        <input type="hidden" name="driver" value="<?=htmlspecialchars((string) $oOther->getSlug())?>">
-                        <button type="submit" name="action" value="switch" class="btn btn--block btn--secondary">
-                            Use <?=htmlspecialchars($oOther->getLabel())?>
-                        </button>
-                        <?php
-                        echo form_close();
-                    }
-
-                    ?>
-                </div>
-                <?php
-            }
+            $oView->load('mfa/_components/challenge_actions');
 
             ?>
             <div id="mfa-submitting" style="display: none" class="form__group text-center">

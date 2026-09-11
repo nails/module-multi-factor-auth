@@ -8,7 +8,7 @@ use Nails\MFA\Interfaces\Authentication\Driver\Interactive;
  * @var \Nails\MFA\Interfaces\Authentication\Driver $oDriver
  * @var \Nails\MFA\Resource\Token                   $oToken
  * @var object|null                                 $oPending
- * @var bool                                        $bCanGoBack
+ * @var bool                                        $bCanChooseAnother
  * @var string                                      $sTrustedForLabel
  */
 
@@ -101,16 +101,9 @@ $oView = Factory::service('View');
                         Confirm and continue
                     </button>
                 <?php } ?>
-                <?php if ($bCanGoBack) { ?>
-                    <button type="submit" name="action" value="setup_back" class="btn btn--block btn--secondary">
-                        Choose another method
-                    </button>
-                <?php } ?>
-                <button type="submit" name="action" value="setup_cancel" class="btn btn--block btn--link">
-                    Cancel setup
-                </button>
             </div>
             <?=form_close()?>
+            <?php $oView->load('mfa/_components/challenge_actions') ?>
         </div>
     </div>
 </div>
