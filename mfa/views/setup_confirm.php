@@ -2,18 +2,18 @@
 
 use Nails\Common\Service\View;
 use Nails\Factory;
-use Nails\MFA\Interfaces\Authentication\Driver\Interactive;
+use Nails\MFA\Interfaces\Authentication\Driver\FormFragment;
 
 /**
  * @var \Nails\MFA\Interfaces\Authentication\Driver $oDriver
  * @var \Nails\MFA\Resource\Token                   $oToken
  * @var object|null                                 $oPending
- * @var bool                                        $bCanGoBack
+ * @var bool                                        $bCanChooseAnother
  * @var string                                      $sTrustedForLabel
  */
 
-$bInteractive = $oDriver instanceof Interactive;
-$bHideCode    = $bInteractive && $oDriver->hidesCodeInput();
+$bFormFragment = $oDriver instanceof FormFragment;
+$bHideCode     = $bFormFragment && $oDriver->hidesCodeInput();
 
 /** @var View $oView */
 $oView = Factory::service('View');
@@ -32,7 +32,7 @@ $oView = Factory::service('View');
             echo form_open(null, 'id="mfa-form" class="form"');
             $oView->load('auth/_components/alerts');
 
-            if ($bInteractive) {
+            if ($bFormFragment) {
 
                 //  See form.php: the driver JS locates this via [name="action"] and
                 //  sets it before a programmatic form.submit(), which carries no
@@ -101,16 +101,9 @@ $oView = Factory::service('View');
                         Confirm and continue
                     </button>
                 <?php } ?>
-                <?php if ($bCanGoBack) { ?>
-                    <button type="submit" name="action" value="setup_back" class="btn btn--block btn--secondary">
-                        Choose another method
-                    </button>
-                <?php } ?>
-                <button type="submit" name="action" value="setup_cancel" class="btn btn--block btn--link">
-                    Cancel setup
-                </button>
             </div>
             <?=form_close()?>
+            <?php $oView->load('mfa/_components/challenge_actions') ?>
         </div>
     </div>
 </div>

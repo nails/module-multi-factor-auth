@@ -167,7 +167,23 @@ class Mfa extends Controller\Base
 
             } elseif ($oInput::post('action') === 'setup_cancel') {
 
-                $this->cancelSetup($oToken, $oMfaService, $oTokenModel, $oUserFeedback);
+                $this->cancelChallenge(
+                    $oToken,
+                    $oMfaService,
+                    $oTokenModel,
+                    $oUserFeedback,
+                    'Two-factor authentication setup was cancelled. Please sign in to try again.'
+                );
+
+            } elseif ($oInput::post('action') === 'cancel') {
+
+                $this->cancelChallenge(
+                    $oToken,
+                    $oMfaService,
+                    $oTokenModel,
+                    $oUserFeedback,
+                    'Sign in was cancelled. Please try again.'
+                );
 
             } elseif ($oInput::post('action') === 'switch') {
 
@@ -370,7 +386,7 @@ class Mfa extends Controller\Base
         $this->data['aCanRemove']    = [];
         $this->data['aDriverLabels'] = [];
 
-        //  Resolve the driver behind an in-progress setup so an Interactive
+        //  Resolve the driver behind an in-progress setup so a FormFragment
         //  driver can render its own confirm panel (and have its assets loaded).
         $oPendingDriver = null;
         if (is_object($oPending) && !empty($oPending->driver)) {
@@ -537,20 +553,25 @@ class Mfa extends Controller\Base
 
     // --------------------------------------------------------------------------
 
-    private function cancelSetup(
+    /**
+     * Abandons the challenge: the token is spent so a cancelled attempt cannot be
+     * resumed, and the user is returned to the login page to start again.
+     */
+    private function cancelChallenge(
         Resource\Token $oToken,
         MultiFactorAuth $oMfaService,
         Model\Token $oTokenModel,
-        Service\UserFeedback $oUserFeedback
+        Service\UserFeedback $oUserFeedback,
+        string $sMessage
     ): void {
-        $this->log('User cancelled MFA setup');
+        $this->log('User cancelled the MFA challenge');
 
         if ($oToken->id) {
             $oTokenModel->delete($oToken->id);
         }
 
         $oMfaService->clearTokenCookie();
-        $oUserFeedback->info('Two-factor authentication setup was cancelled. Please sign in to try again.');
+        $oUserFeedback->info($sMessage);
         redirect(loginUrl(null));
     }
 
@@ -610,12 +631,12 @@ class Mfa extends Controller\Base
         $oView = Factory::service('View');
         $oView
             ->setData([
-                'oDriver'         => $oDriver,
-                'oToken'          => $oToken,
-                'aOtherMethods'   => $aOtherMethods,
-                'bIsSetup'        => (bool) $oToken->getData($oMfaService::TOKEN_DATA_KEY_IS_SETUP),
-                'bCanGoBack'      => count($oMfaService->getSetupDrivers($oToken->user())) > 1,
-                'sTrustedForLabel' => $this->trustedForLabel($oMfaService),
+                'oDriver'           => $oDriver,
+                'oToken'            => $oToken,
+                'aOtherMethods'     => $aOtherMethods,
+                'bIsSetup'          => (bool) $oToken->getData($oMfaService::TOKEN_DATA_KEY_IS_SETUP),
+                'bCanChooseAnother' => count($oMfaService->getSetupDrivers($oToken->user())) > 1,
+                'sTrustedForLabel'  => $this->trustedForLabel($oMfaService),
             ])
             ->load([
                 'mfa/structure/header',
@@ -657,8 +678,12 @@ class Mfa extends Controller\Base
         $oView = Factory::service('View');
         $oView
             ->setData([
-                'oToken'   => $oToken,
-                'aDrivers' => $aDrivers,
+                'oToken'            => $oToken,
+                'aDrivers'          => $aDrivers,
+                //  The drivers are listed above; only cancelling is left to offer
+                'aOtherMethods'     => [],
+                'bCanChooseAnother' => false,
+                'bIsSetup'          => true,
             ])
             ->load([
                 'mfa/structure/header',
@@ -685,11 +710,13 @@ class Mfa extends Controller\Base
         $oView = Factory::service('View');
         $oView
             ->setData([
-                'oDriver'          => $oDriver,
-                'oToken'           => $oToken,
-                'oPending'         => $oMfaService->getPendingSetup($oToken),
-                'bCanGoBack'       => count($oMfaService->getSetupDrivers($oToken->user())) > 1,
-                'sTrustedForLabel' => $this->trustedForLabel($oMfaService),
+                'oDriver'           => $oDriver,
+                'oToken'            => $oToken,
+                'oPending'          => $oMfaService->getPendingSetup($oToken),
+                'aOtherMethods'     => [],
+                'bCanChooseAnother' => count($oMfaService->getSetupDrivers($oToken->user())) > 1,
+                'bIsSetup'          => true,
+                'sTrustedForLabel'  => $this->trustedForLabel($oMfaService),
             ])
             ->load([
                 'mfa/structure/header',
@@ -720,17 +747,17 @@ class Mfa extends Controller\Base
     // --------------------------------------------------------------------------
 
     /**
-     * Loads an interactive driver's front-end assets.
+     * Loads a FormFragment driver's front-end assets.
      *
      * Called immediately after loadStyles() so it runs after that method's
      * clear(). Unlike loadStyles() it fires even when the app has overridden the
-     * view: an Interactive driver's assets are functional, not cosmetic.
+     * view: a FormFragment driver's assets are functional, not cosmetic.
      *
      * @throws FactoryException
      */
     protected function loadDriverAssets(?Interfaces\Authentication\Driver $oDriver): void
     {
-        if ($oDriver instanceof Interfaces\Authentication\Driver\Interactive) {
+        if ($oDriver instanceof Interfaces\Authentication\Driver\FormFragment) {
             $oDriver->loadAssets();
         }
     }

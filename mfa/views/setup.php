@@ -52,5 +52,7 @@ $oView = Factory::service('View');
         <?php
     }
 
+    $oView->load('mfa/_components/challenge_actions');
+
     ?>
 </div>
