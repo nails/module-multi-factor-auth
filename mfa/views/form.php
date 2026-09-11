@@ -2,6 +2,7 @@
 
 use Nails\Common\Service\View;
 use Nails\Factory;
+use Nails\MFA\Interfaces\Authentication\Driver\Interactive;
 
 /**
  * @var \Nails\MFA\Interfaces\Authentication\Driver $oDriver
@@ -13,6 +14,9 @@ use Nails\Factory;
  */
 
 $aOtherMethods = $aOtherMethods ?? [];
+
+$bInteractive  = $oDriver instanceof Interactive;
+$bHideCode     = $bInteractive && $oDriver->hidesCodeInput();
 
 /** @var View $oView */
 $oView = Factory::service('View');
@@ -31,11 +35,36 @@ $oView = Factory::service('View');
             echo form_open(null, 'id="mfa-form" class="form"');
             $oView->load('auth/_components/alerts');
 
+            if ($bInteractive) {
+                /**
+                 * The shared driver JS finds this via `form.querySelector('[name="action"]')`
+                 * and sets it before calling form.submit(). A programmatic submit() never
+                 * carries a <button>'s name/value, so without a real input here the action
+                 * would silently go missing whenever a submit button is hidden below (and,
+                 * for a real click, the clicked button's value still overwrites this empty
+                 * one, since $_POST keeps the last of duplicate keys and the button sits
+                 * later in the form).
+                 */
+                ?>
+                <input type="hidden" name="action" value="">
+                <?php
+                echo $oDriver->getChallengeMarkup($oToken);
+            }
+
+            if ($bHideCode) {
+                ?>
+                <input type="hidden" name="code" id="input-code" value="<?=htmlspecialchars((string) set_value('code'))?>">
+                <?php
+            } else {
+                ?>
+                <div class="form__group">
+                    <label class="form__label" for="input-code">Code</label>
+                    <?=form_input('code', set_value('code'), 'id="input-code" autocomplete="one-time-code" inputmode="numeric" class="form__control"')?>
+                </div>
+                <?php
+            }
+
             ?>
-            <div class="form__group">
-                <label class="form__label" for="input-code">Code</label>
-                <?=form_input('code', set_value('code'), 'id="input-code" autocomplete="one-time-code" inputmode="numeric" class="form__control"')?>
-            </div>
             <div class="form__group form__group--checkbox-compact">
                 <?=form_checkbox('remember', true, set_checkbox('remember'), 'id="input-remember"')?>
                 <label for="input-remember">
@@ -51,9 +80,11 @@ $oView = Factory::service('View');
                 </p>
             <?php } ?>
             <div class="form__actions form__actions--stacked">
-                <button type="submit" name="action" value="verify" class="btn btn--block btn--primary" id="mfa-btn-verify">
-                    Verify
-                </button>
+                <?php if (!$bHideCode) { ?>
+                    <button type="submit" name="action" value="verify" class="btn btn--block btn--primary" id="mfa-btn-verify">
+                        Verify
+                    </button>
+                <?php } ?>
                 <?php
 
                 if ($oDriver->canTryAgain()) {
@@ -110,7 +141,9 @@ var btnRetry = document.getElementById('mfa-btn-retry');
 var submitting = document.getElementById('mfa-submitting');
 
 form.addEventListener('submit', function() {
-    btnVerify.style.display = 'none';
+    if (btnVerify) {
+        btnVerify.style.display = 'none';
+    }
     if (btnRetry) {
         btnRetry.style.display = 'none';
     }
