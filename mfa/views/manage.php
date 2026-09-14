@@ -9,6 +9,7 @@
  * @var \Nails\MFA\Interfaces\Authentication\Driver|null $oPendingDriver
  * @var array<string, string> $aDriverLabels
  * @var array<string, bool> $aCanRemove
+ * @var string|null $sReturnUrl
  */
 
 use Nails\Common\Service\View;
@@ -51,6 +52,9 @@ $oView = Factory::service('View');
                 </h2>
             </div>
             <?=form_open(null, 'class="form mb-0"')?>
+            <?php if ($sReturnUrl) { ?>
+                <input type="hidden" name="return" value="<?=htmlspecialchars($sReturnUrl, ENT_QUOTES)?>">
+            <?php } ?>
             <div class="panel__body">
                 <?php
 
@@ -155,6 +159,9 @@ $oView = Factory::service('View');
                                     echo form_open(null, 'class="form mb-0"');
                                     ?>
                                     <input type="hidden" name="driver" value="<?=htmlspecialchars($sDriver)?>">
+                                    <?php if ($sReturnUrl) { ?>
+                                        <input type="hidden" name="return" value="<?=htmlspecialchars($sReturnUrl, ENT_QUOTES)?>">
+                                    <?php } ?>
                                     <span class="form__actions mb-0 px-0">
                                         <?php if (!$oMethod->is_default) { ?>
                                             <button type="submit" name="action" value="set_default" class="btn btn--sm btn--secondary">
@@ -216,6 +223,9 @@ $oView = Factory::service('View');
                             echo form_open(null, 'class="form mb-0"');
                             ?>
                             <input type="hidden" name="driver" value="<?=htmlspecialchars((string) $oDriver->getSlug())?>">
+                            <?php if ($sReturnUrl) { ?>
+                                <input type="hidden" name="return" value="<?=htmlspecialchars($sReturnUrl, ENT_QUOTES)?>">
+                            <?php } ?>
                             <button type="submit" name="action" value="setup_choose" class="btn btn--sm btn--primary">
                                 Add
                             </button>
@@ -230,6 +240,16 @@ $oView = Factory::service('View');
                     ?>
                 </ul>
             </div>
+        </div>
+        <?php
+    }
+
+    if ($sReturnUrl) {
+        ?>
+        <div class="form__actions">
+            <a href="<?=htmlspecialchars($sReturnUrl, ENT_QUOTES)?>" class="btn btn--secondary">
+                Back
+            </a>
         </div>
         <?php
     }
