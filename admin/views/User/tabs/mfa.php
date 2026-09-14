@@ -6,9 +6,22 @@
  * @var array<string, string> $aModes
  * @var \Nails\MFA\Resource\UserMethod[] $aMethods
  * @var array<string, string> $aDriverLabels
+ * @var bool $bIsSelf
+ * @var string|null $sManageUrl
  */
 
 $fnLabel = static fn(string $sDriver): string => $aDriverLabels[$sDriver] ?? $sDriver;
+
+if ($bIsSelf && $sManageUrl) {
+    ?>
+    <div class="alert alert-info">
+        Use the self-service page to add, remove, or choose your default verification method.
+        <a href="<?=htmlspecialchars($sManageUrl, ENT_QUOTES)?>" class="btn btn-sm btn-primary">
+            Manage my verification methods
+        </a>
+    </div>
+    <?php
+}
 
 echo form_field([
     'key'      => 'mfa_group_policy',

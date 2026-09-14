@@ -322,7 +322,10 @@ class Mfa extends Controller\Base
         /** @var Service\View $oView */
         $oView = Factory::service('View');
 
-        $oUser = activeUser();
+        $oUser      = activeUser();
+        $sReturnUrl = $this->sanitiseReturnUrl(
+            (string) ($oInput::post('return') ?: $oInput::get('return'))
+        );
 
         if (!$oMfaService->userCanManageMethods($oUser)) {
             show404();
@@ -335,12 +338,12 @@ class Mfa extends Controller\Base
             if ($oInput::post('action') === 'set_default') {
                 $oMfaService->setDefaultMethod($oUser, (string) $oInput::post('driver'));
                 $oUserFeedback->success('Default verification method updated.');
-                redirect('mfa/manage');
+                redirect($this->manageUrl($sReturnUrl));
 
             } elseif ($oInput::post('action') === 'remove') {
                 $oMfaService->removeMethod($oUser, (string) $oInput::post('driver'));
                 $oUserFeedback->success('Verification method removed.');
-                redirect('mfa/manage');
+                redirect($this->manageUrl($sReturnUrl));
 
             } elseif ($oInput::post('action') === 'setup_choose') {
                 $sSlug   = (string) $oInput::post('driver');
@@ -360,7 +363,7 @@ class Mfa extends Controller\Base
                         empty($oMfaService->getUserMethods($oUser))
                     );
                     $oUserFeedback->success($oDriver->getLabel() . ' has been added to your account.');
-                    redirect('mfa/manage');
+                    redirect($this->manageUrl($sReturnUrl));
                 }
 
             } elseif ($oInput::post('action') === 'setup_confirm' && $oPending) {
@@ -378,7 +381,7 @@ class Mfa extends Controller\Base
                 );
                 $oSession->unsetUserData(static::SESSION_PENDING_SETUP);
                 $oUserFeedback->success($oDriver->getLabel() . ' has been added to your account.');
-                redirect('mfa/manage');
+                redirect($this->manageUrl($sReturnUrl));
 
             } elseif ($oInput::post('action') === 'setup_cancel') {
                 $oSession->unsetUserData(static::SESSION_PENDING_SETUP);
@@ -399,6 +402,7 @@ class Mfa extends Controller\Base
         $this->data['oPending']      = is_object($oPending) ? $oPending : null;
         $this->data['aCanRemove']    = [];
         $this->data['aDriverLabels'] = [];
+        $this->data['sReturnUrl']     = $sReturnUrl;
 
         //  Resolve the driver behind an in-progress setup so a FormFragment
         //  driver can render its own confirm panel (and have its assets loaded).
@@ -563,6 +567,54 @@ class Mfa extends Controller\Base
         }
 
         throw new Exception\MfaException('That verification method is not available.');
+    }
+
+    // --------------------------------------------------------------------------
+
+    /**
+     * Restricts the optional return URL to this site
+     */
+    private function sanitiseReturnUrl(string $sUrl): ?string
+    {
+        $sUrl = trim($sUrl);
+
+        if ($sUrl === '' || str_starts_with($sUrl, '//') || preg_match('/[\x00-\x1F\x7F]/', $sUrl)) {
+            return null;
+        }
+
+        $aUrl = parse_url($sUrl);
+        if ($aUrl === false) {
+            return null;
+        }
+
+        if (empty($aUrl['host'])) {
+            return empty($aUrl['scheme'])
+                ? siteUrl(ltrim($sUrl, '/'))
+                : null;
+        }
+
+        $aBaseUrl = parse_url((string) Config::get('BASE_URL'));
+        $sScheme  = strtolower((string) ($aUrl['scheme'] ?? ''));
+
+        if (
+            !in_array($sScheme, ['http', 'https'], true)
+            || strtolower((string) $aUrl['host']) !== strtolower((string) ($aBaseUrl['host'] ?? ''))
+            || ($aUrl['port'] ?? null) !== ($aBaseUrl['port'] ?? null)
+        ) {
+            return null;
+        }
+
+        return $sUrl;
+    }
+
+    // --------------------------------------------------------------------------
+
+    /**
+     * Builds the management URL while preserving its optional return destination
+     */
+    private function manageUrl(?string $sReturnUrl): string
+    {
+        return 'mfa/manage' . ($sReturnUrl ? '?return=' . rawurlencode($sReturnUrl) : '');
     }
 
     // --------------------------------------------------------------------------

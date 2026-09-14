@@ -5,6 +5,7 @@ namespace Nails\MFA\Auth\Admin\User\Tab;
 use Nails\Auth\Admin\Permission;
 use Nails\Auth\Interfaces\Admin\User\Tab;
 use Nails\Auth\Resource\User;
+use Nails\Common\Service\Input;
 use Nails\Common\Service\View;
 use Nails\Factory;
 use Nails\MFA\Constants;
@@ -24,7 +25,8 @@ class Mfa implements Tab
 
     public static function isEnabled(User $user): bool
     {
-        return userHasPermission(Permission\Users\Edit::class);
+        return (int) $user->id === (int) activeUser('id')
+            || userHasPermission(Permission\Users\Edit::class);
     }
 
     // --------------------------------------------------------------------------
@@ -42,6 +44,8 @@ class Mfa implements Tab
         $oView = Factory::service('View');
         /** @var MultiFactorAuth $oMfa */
         $oMfa = Factory::service('MultiFactorAuth', Constants::MODULE_SLUG);
+        /** @var Input $oInput */
+        $oInput = Factory::service('Input');
 
         $aDriverLabels = [];
         try {
@@ -52,6 +56,8 @@ class Mfa implements Tab
             $aDriverLabels = [];
         }
 
+        $bIsSelf = (int) $oUser->id === (int) activeUser('id');
+
         return $oView->load(
             ['User/tabs/mfa'],
             [
@@ -60,6 +66,12 @@ class Mfa implements Tab
                 'aModes'         => GroupPolicy::modes(),
                 'aMethods'       => $oMfa->getUserMethods($oUser),
                 'aDriverLabels'  => $aDriverLabels,
+                'bIsSelf'        => $bIsSelf,
+                'sManageUrl'     => $bIsSelf && $oMfa->userCanManageMethods($oUser)
+                    ? siteUrl('mfa/manage')
+                        . '?return='
+                        . rawurlencode((string) $oInput->server('REQUEST_URI'))
+                    : null,
             ],
             true
         );
