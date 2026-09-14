@@ -43,12 +43,12 @@ class MultiFactorAuth
     const string MFA_COOKIE_TOKEN_KEY         = 'mfa-token';
     const string MFA_COOKIE_IS_PRIVILEGED_KEY = 'mfa-is-privileged';
     const int    MFA_COOKIE_IS_PRIVILEGED_TTL = 1209600; // 14 days
-    const string TOKEN_DATA_KEY_RETURN_TO      = 'return_to';
-    const string TOKEN_DATA_KEY_IS_REMEMBERED  = 'is_remembered';
-    const string TOKEN_DATA_KEY_DRIVER         = 'driver';
-    const string TOKEN_DATA_KEY_PENDING_SETUP  = 'pending_setup';
-    const string TOKEN_DATA_KEY_IS_SETUP        = 'is_setup';
-    const string TOKEN_DATA_KEY_RESENDS         = 'resends';
+    const string TOKEN_DATA_KEY_RETURN_TO     = 'return_to';
+    const string TOKEN_DATA_KEY_IS_REMEMBERED = 'is_remembered';
+    const string TOKEN_DATA_KEY_DRIVER        = 'driver';
+    const string TOKEN_DATA_KEY_PENDING_SETUP = 'pending_setup';
+    const string TOKEN_DATA_KEY_IS_SETUP      = 'is_setup';
+    const string TOKEN_DATA_KEY_RESENDS       = 'resends';
 
     // --------------------------------------------------------------------------
 
