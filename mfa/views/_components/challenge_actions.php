@@ -19,30 +19,38 @@ $bIsSetup           = $bIsSetup ?? false;
 <div class="form__actions form__actions--stacked">
     <?php
 
+    /**
+     * Falling back to an enrolled method and setting a different one up are both
+     * ways out of a challenge the user cannot complete, and they are not
+     * alternatives to each other: a user part way through setup may still have
+     * something enrolled to fall back on. Offer whichever apply.
+     */
+
+    if (!empty($aOtherMethods) || ($bIsSetup && $bCanChooseAnother)) {
+        ?>
+        <p class="text-center"><strong>Choose another method</strong></p>
+        <?php
+    }
+
+    foreach ($aOtherMethods as $oOther) {
+        echo form_open(null, 'class="form"');
+        ?>
+        <input type="hidden" name="driver" value="<?=htmlspecialchars((string) $oOther->getSlug())?>">
+        <button type="submit" name="action" value="switch" class="btn btn--block btn--secondary">
+            Use <?=htmlspecialchars($oOther->getLabel())?>
+        </button>
+        <?php
+        echo form_close();
+    }
+
     if ($bIsSetup && $bCanChooseAnother) {
         echo form_open(null, 'class="form"');
         ?>
         <button type="submit" name="action" value="setup_back" class="btn btn--block btn--secondary">
-            Choose another method
+            Set up a different method
         </button>
         <?php
         echo form_close();
-
-    } elseif (!$bIsSetup && !empty($aOtherMethods)) {
-        ?>
-        <p class="text-center"><strong>Choose another method</strong></p>
-        <?php
-
-        foreach ($aOtherMethods as $oOther) {
-            echo form_open(null, 'class="form"');
-            ?>
-            <input type="hidden" name="driver" value="<?=htmlspecialchars((string) $oOther->getSlug())?>">
-            <button type="submit" name="action" value="switch" class="btn btn--block btn--secondary">
-                Use <?=htmlspecialchars($oOther->getLabel())?>
-            </button>
-            <?php
-            echo form_close();
-        }
     }
 
     echo form_open(null, 'class="form"');
