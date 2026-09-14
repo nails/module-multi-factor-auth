@@ -268,10 +268,11 @@ class Mfa extends Controller\Base
                 $e::class,
                 $e->getMessage()
             ));
+            $sReturnTo = $this->challengeReturnTo($e->getToken(), $oMfaService);
             $oTokenModel->delete($e->getToken()->id);
             $oMfaService->clearTokenCookie();
             $oUserFeedback->info('Your session expired, please try again.');
-            redirect(loginUrl(null));
+            redirect(loginUrl($sReturnTo));
 
         } catch (DecodeException|Exception\TokenException $e) {
             $this->log(sprintf(
@@ -279,6 +280,10 @@ class Mfa extends Controller\Base
                 $e::class,
                 $e->getMessage()
             ));
+
+            $sReturnTo = $e instanceof Exception\TokenException
+                ? $this->challengeReturnTo($e->getToken(), $oMfaService)
+                : null;
 
             if ($e instanceof Exception\TokenException && $e->getToken()) {
                 $oTokenModel->delete($e->getToken()->id);
@@ -291,7 +296,7 @@ class Mfa extends Controller\Base
                     ? $e->getMessage()
                     : 'We could not continue your sign-in. Please sign in and try again.'
             );
-            redirect(loginUrl(null));
+            redirect(loginUrl($sReturnTo));
 
         } catch (Throwable $e) {
             $this->log(sprintf(
@@ -620,6 +625,26 @@ class Mfa extends Controller\Base
     // --------------------------------------------------------------------------
 
     /**
+     * Recovers the destination captured when MFA interrupted the login.
+     */
+    private function challengeReturnTo(
+        ?Resource\Token $oToken,
+        MultiFactorAuth $oMfaService
+    ): ?string {
+        if (!$oToken) {
+            return null;
+        }
+
+        $sReturnTo = $oToken->getData($oMfaService::TOKEN_DATA_KEY_RETURN_TO);
+
+        return is_string($sReturnTo) && $sReturnTo !== ''
+            ? $sReturnTo
+            : null;
+    }
+
+    // --------------------------------------------------------------------------
+
+    /**
      * Abandons the challenge: the token is spent so a cancelled attempt cannot be
      * resumed, and the user is returned to the login page to start again.
      */
@@ -632,13 +657,15 @@ class Mfa extends Controller\Base
     ): void {
         $this->log('User cancelled the MFA challenge');
 
+        $sReturnTo = $this->challengeReturnTo($oToken, $oMfaService);
+
         if ($oToken->id) {
             $oTokenModel->delete($oToken->id);
         }
 
         $oMfaService->clearTokenCookie();
         $oUserFeedback->info($sMessage);
-        redirect(loginUrl(null));
+        redirect(loginUrl($sReturnTo));
     }
 
     // --------------------------------------------------------------------------

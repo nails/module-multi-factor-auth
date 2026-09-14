@@ -356,16 +356,24 @@ class MultiFactorAuth
         /** @var Auth\Model\User $oUserModel */
         $oUserModel = Factory::model('User', Auth\Constants::MODULE_SLUG);
 
+        $sReturnTo = trim((string) $oInput::get('return_to'));
         /** @var \DateTime $oNow */
         $oNow     = Factory::factory('DateTime');
         $oExpires = (clone $oNow)->add(new \DateInterval(sprintf('PT%dS', static::TOKEN_TTL)));
 
         $oData = (object) [
-            //  Mirrors module-auth's own post-login destination; the MFA redirect
-            //  happens during the log in event, so that never gets a chance to run
-            static::TOKEN_DATA_KEY_RETURN_TO     => $oInput::get('return_to') ?: $oUser->group_homepage,
             static::TOKEN_DATA_KEY_IS_REMEMBERED => $bIsRemembered,
         ];
+
+        /**
+         * A reused challenge may be reached after the user cancelled, went back,
+         * or opened the login page directly. In those cases there is no return_to
+         * on the new request, but the token still knows where the original login
+         * was going. Only replace it when a new destination was explicitly given.
+         */
+        if ($sReturnTo !== '') {
+            $oData->{static::TOKEN_DATA_KEY_RETURN_TO} = $sReturnTo;
+        }
 
         $oDb->transaction()->start();
 
@@ -420,6 +428,11 @@ class MultiFactorAuth
                 throw new TokenMintLimitException(
                     'We could not complete your sign-in. Please wait and try again later.'
                 );
+            }
+
+            //  A new token has no earlier destination to preserve.
+            if ($sReturnTo === '') {
+                $oData->{static::TOKEN_DATA_KEY_RETURN_TO} = $oUser->group_homepage;
             }
 
             //  @todo (Pablo 2023-02-22) - tolerate save failure (duplicate?) perhaps do {} while() and an incrementing counter

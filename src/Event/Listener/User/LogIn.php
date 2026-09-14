@@ -5,6 +5,7 @@ namespace Nails\MFA\Event\Listener\User;
 use Nails\Auth\Events;
 use Nails\Auth\Model\User;
 use Nails\Common\Events\Subscription;
+use Nails\Common\Service\Input;
 use Nails\Common\Service\UserFeedback;
 use Nails\Factory;
 use Nails\MFA\Constants;
@@ -85,7 +86,11 @@ class LogIn extends Subscription
                     : 'We could not complete your sign-in. Please try again.'
             );
 
-            redirect(loginUrl(null));
+            /** @var Input $oInput */
+            $oInput     = Factory::service('Input');
+            $sReturnTo  = trim((string) $oInput::get('return_to'));
+
+            redirect(loginUrl($sReturnTo !== '' ? $sReturnTo : null));
         }
     }
 }
