@@ -209,8 +209,15 @@ class Mfa extends Controller\Base
                     return;
                 }
 
+                /**
+                 * Switching lands on a method the user has already enrolled, so any
+                 * setup they were part way through is abandoned here; leaving it on
+                 * the token would send them straight back to it on the next render.
+                 */
+                $oMfaService->clearPendingSetup($oToken);
                 $oToken->setData((object) [
-                    $oMfaService::TOKEN_DATA_KEY_DRIVER => $oSwitched->getSlug(),
+                    $oMfaService::TOKEN_DATA_KEY_DRIVER   => $oSwitched->getSlug(),
+                    $oMfaService::TOKEN_DATA_KEY_IS_SETUP => false,
                 ]);
                 $oSwitched->preForm($oToken, $oUserFeedback);
                 $this->renderForm($oSwitched, $oToken, $oMfaService);
@@ -578,6 +585,39 @@ class Mfa extends Controller\Base
     // --------------------------------------------------------------------------
 
     /**
+     * The methods the user could verify with instead of the one in front of them.
+     *
+     * Enrollment, not the driver, decides this: any method the user has already
+     * set up is a way past a challenge they cannot complete, whether they are
+     * stuck on a code which never arrived or a passkey prompt their device will
+     * not answer.
+     *
+     * @param Interfaces\Authentication\Driver|null $oDriver The method in play, excluded from the result
+     *
+     * @return Interfaces\Authentication\Driver[]
+     * @throws NailsException
+     */
+    private function otherMethods(
+        MultiFactorAuth $oMfaService,
+        Resource\Token $oToken,
+        ?Interfaces\Authentication\Driver $oDriver
+    ): array {
+        $oUser = $oToken->user();
+        if ($oUser === null) {
+            return [];
+        }
+
+        $sSlug = $oDriver ? (string) $oDriver->getSlug() : null;
+
+        return array_values(array_filter(
+            $oMfaService->getAuthenticationMethods($oUser),
+            fn(Interfaces\Authentication\Driver $oOther): bool => $oOther->getSlug() !== $sSlug
+        ));
+    }
+
+    // --------------------------------------------------------------------------
+
+    /**
      * Describes the trusted device window in the units the configured TTL divides into
      */
     private function trustedForLabel(MultiFactorAuth $oMfaService): string
@@ -620,20 +660,13 @@ class Mfa extends Controller\Base
         $this->loadStyles(Config::get('NAILS_APP_PATH') . 'application/modules/mfa/views/form.php');
         $this->loadDriverAssets($oDriver);
 
-        $aOtherMethods = [];
-        foreach ($oMfaService->getAuthenticationMethods($oToken->user()) as $oOther) {
-            if ($oOther->getSlug() !== $oDriver->getSlug()) {
-                $aOtherMethods[] = $oOther;
-            }
-        }
-
         /** @var Service\View $oView */
         $oView = Factory::service('View');
         $oView
             ->setData([
                 'oDriver'           => $oDriver,
                 'oToken'            => $oToken,
-                'aOtherMethods'     => $aOtherMethods,
+                'aOtherMethods'     => $this->otherMethods($oMfaService, $oToken, $oDriver),
                 'bIsSetup'          => (bool) $oToken->getData($oMfaService::TOKEN_DATA_KEY_IS_SETUP),
                 'bCanChooseAnother' => count($oMfaService->getSetupDrivers($oToken->user())) > 1,
                 'sTrustedForLabel'  => $this->trustedForLabel($oMfaService),
@@ -680,8 +713,8 @@ class Mfa extends Controller\Base
             ->setData([
                 'oToken'            => $oToken,
                 'aDrivers'          => $aDrivers,
-                //  The drivers are listed above; only cancelling is left to offer
-                'aOtherMethods'     => [],
+                'aOtherMethods'     => $this->otherMethods($oMfaService, $oToken, null),
+                //  The drivers to set up are listed above, so there is no need to offer them again
                 'bCanChooseAnother' => false,
                 'bIsSetup'          => true,
             ])
@@ -713,7 +746,7 @@ class Mfa extends Controller\Base
                 'oDriver'           => $oDriver,
                 'oToken'            => $oToken,
                 'oPending'          => $oMfaService->getPendingSetup($oToken),
-                'aOtherMethods'     => [],
+                'aOtherMethods'     => $this->otherMethods($oMfaService, $oToken, $oDriver),
                 'bCanChooseAnother' => count($oMfaService->getSetupDrivers($oToken->user())) > 1,
                 'bIsSetup'          => true,
                 'sTrustedForLabel'  => $this->trustedForLabel($oMfaService),
