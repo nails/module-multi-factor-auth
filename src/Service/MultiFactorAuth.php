@@ -746,6 +746,13 @@ class MultiFactorAuth
             $aDrivers[] = $oService->getInstance($oComponent);
         }
 
+        $aDrivers = array_values(
+            array_filter(
+                $aDrivers,
+                fn(MFA\Interfaces\Authentication\Driver $oDriver) => $oDriver->isEnabled()
+            )
+        );
+
         if (empty($aDrivers)) {
             throw new MFA\Exception\MfaException('No MFA drivers are available');
         }
