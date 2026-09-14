@@ -158,6 +158,13 @@ class Mfa extends Controller\Base
             } elseif ($oInput::post('action') === 'setup_back') {
 
                 $this->log('User is choosing a different MFA setup method');
+
+                /**
+                 * Reached from a challenge as well as from setup: a user whose only
+                 * enrolled method will not let them in enrolls their way out. Either
+                 * way the token becomes a setup one, so the driver they land on has
+                 * to be demonstrated before completeChallenge() signs them in.
+                 */
                 $oMfaService->clearPendingSetup($oToken);
                 $oToken->setData((object) [
                     $oMfaService::TOKEN_DATA_KEY_DRIVER  => null,
@@ -660,15 +667,24 @@ class Mfa extends Controller\Base
         $this->loadStyles(Config::get('NAILS_APP_PATH') . 'application/modules/mfa/views/form.php');
         $this->loadDriverAssets($oDriver);
 
+        $bIsSetup = (bool) $oToken->getData($oMfaService::TOKEN_DATA_KEY_IS_SETUP);
+        $iSetup   = count($oMfaService->getSetupDrivers($oToken->user()));
+
         /** @var Service\View $oView */
         $oView = Factory::service('View');
         $oView
             ->setData([
-                'oDriver'           => $oDriver,
-                'oToken'            => $oToken,
-                'aOtherMethods'     => $this->otherMethods($oMfaService, $oToken, $oDriver),
-                'bIsSetup'          => (bool) $oToken->getData($oMfaService::TOKEN_DATA_KEY_IS_SETUP),
-                'bCanChooseAnother' => count($oMfaService->getSetupDrivers($oToken->user())) > 1,
+                'oDriver'       => $oDriver,
+                'oToken'        => $oToken,
+                'aOtherMethods' => $this->otherMethods($oMfaService, $oToken, $oDriver),
+                'bIsSetup'      => $bIsSetup,
+                /**
+                 * During setup the chooser this returns to lists these same drivers,
+                 * so going back to a list of one is no choice at all. During a
+                 * challenge it is the user's only way past a method which will not
+                 * let them in, so a single option is still worth offering.
+                 */
+                'bCanChooseAnother' => $bIsSetup ? $iSetup > 1 : $iSetup > 0,
                 'sTrustedForLabel'  => $this->trustedForLabel($oMfaService),
             ])
             ->load([
