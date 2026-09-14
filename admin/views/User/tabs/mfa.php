@@ -15,7 +15,9 @@ $fnLabel = static fn(string $sDriver): string => $aDriverLabels[$sDriver] ?? $sD
 if ($bIsSelf && $sManageUrl) {
     ?>
     <div class="alert alert-info">
-        Use the self-service page to add, remove, or choose your default verification method.
+        <p class="mb-2">
+            Use the self-service page to add, remove, or choose your default verification method.
+        </p>
         <a href="<?=htmlspecialchars($sManageUrl, ENT_QUOTES)?>" class="btn btn-sm btn-primary">
             Manage my verification methods
         </a>
