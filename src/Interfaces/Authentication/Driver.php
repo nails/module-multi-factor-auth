@@ -19,6 +19,8 @@ interface Driver
 
     public function getSetupDescription(): string;
 
+    public function isEnabled(): bool;
+
     public function preForm(Token $oToken, UserFeedback $oUserFeedback): void;
 
     public function postForm(Token $oToken): void;
