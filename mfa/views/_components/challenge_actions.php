@@ -23,10 +23,11 @@ $bIsSetup           = $bIsSetup ?? false;
      * Falling back to an enrolled method and setting a different one up are both
      * ways out of a challenge the user cannot complete, and they are not
      * alternatives to each other: a user part way through setup may still have
-     * something enrolled to fall back on. Offer whichever apply.
+     * something enrolled to fall back on, and a user whose only enrolled method
+     * is refusing them has nothing but setup left. Offer whichever apply.
      */
 
-    if (!empty($aOtherMethods) || ($bIsSetup && $bCanChooseAnother)) {
+    if (!empty($aOtherMethods) || $bCanChooseAnother) {
         ?>
         <p class="text-center"><strong>Choose another method</strong></p>
         <?php
@@ -43,7 +44,7 @@ $bIsSetup           = $bIsSetup ?? false;
         echo form_close();
     }
 
-    if ($bIsSetup && $bCanChooseAnother) {
+    if ($bCanChooseAnother) {
         echo form_open(null, 'class="form"');
         ?>
         <button type="submit" name="action" value="setup_back" class="btn btn--block btn--secondary">
