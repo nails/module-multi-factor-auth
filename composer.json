@@ -7,7 +7,8 @@
         "php": ">=8.3",
         "nails/common": "dev-develop",
         "nails/module-auth": "dev-develop",
-        "nails/module-email": "dev-develop"
+        "nails/module-email": "dev-develop",
+        "nails/module-housekeeping": "dev-develop"
     },
     "require-dev": {
         "phpunit/phpunit": "^12.0",
